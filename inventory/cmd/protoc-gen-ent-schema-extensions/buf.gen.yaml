@@ -1,0 +1,17 @@
+---
+
+# SPDX-FileCopyrightText: (C) 2025 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+# buf.gen.yaml
+# docs: https://docs.buf.build/configuration/v1/buf-gen-yaml
+
+# This configuration is used by custom schema-extender plugin
+
+version: v1
+
+plugins:
+  - plugin: schema-extender
+    strategy: all
+    out: .
+    path: ["go", "run", "./cmd/protoc-gen-ent-schema-extensions"]

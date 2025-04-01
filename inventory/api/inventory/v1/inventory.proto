@@ -1,0 +1,499 @@
+// SPDX-FileCopyrightText: (C) 2025 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+
+package inventory.v1;
+
+import "buf/validate/validate.proto";
+import "compute/v1/compute.proto";
+import "google/protobuf/field_mask.proto";
+import "localaccount/v1/localaccount.proto";
+import "location/v1/location.proto";
+import "network/v1/network.proto";
+import "os/v1/os.proto";
+import "ou/v1/ou.proto";
+import "provider/v1/provider.proto";
+import "remoteaccess/v1/remoteaccess.proto";
+import "schedule/v1/schedule.proto";
+import "telemetry/v1/telemetry.proto";
+import "tenant/v1/tenant.proto";
+
+option go_package = "github.com/open-edge-platform/infra-core/inventory/v2/pkg/api/inventory/v1;inventoryv1";
+
+// Inventory Service (IS) provides an API for managing resources.
+// Selected RPCs operates on tenant context, each of them specifies obligatory tenant_id field.
+// Any RPC operations relying on request messages not specifying tenant_id are intended to operate cross-tenant.
+service InventoryService {
+  // Client (API, Resource Manager, etc) registration and event streaming
+
+  // Registers a new client and subscribes to the requested events. All clients
+  // must open and maintain this stream before making any other requests.
+  // Closing this stream de-registers the client.
+  rpc SubscribeEvents(SubscribeEventsRequest) returns (stream SubscribeEventsResponse) {}
+
+  // Changes the resource kinds the given client will receive events for. See SubscribeEvents.
+  rpc ChangeSubscribeEvents(ChangeSubscribeEventsRequest) returns (ChangeSubscribeEventsResponse) {}
+
+  // Resource RPCs (Generic)
+
+  // Create a new resource, returning it (or error).
+  // Returns UNKNOWN_CLIENT error if the UUID is not known. See SubscribeEvents.
+  rpc CreateResource(CreateResourceRequest) returns (Resource) {}
+
+  // Find resource IDs given criteria.
+  rpc FindResources(FindResourcesRequest) returns (FindResourcesResponse) {}
+
+  // Get information about a single resource given resource ID.
+  rpc GetResource(GetResourceRequest) returns (GetResourceResponse) {}
+
+  // Update a resource with a given ID, returning the updated resource.
+  // If the update results in a hard-delete, the resource is returned in its last state before deletion.
+  // Returns UNKNOWN_CLIENT error if the UUID is not known. See SubscribeEvents.
+  rpc UpdateResource(UpdateResourceRequest) returns (Resource) {}
+
+  // Delete a resource with a given ID.
+  // Returns UNKNOWN_CLIENT error if the UUID is not known. See SubscribeEvents.
+  rpc DeleteResource(DeleteResourceRequest) returns (DeleteResourceResponse) {}
+
+  // List resources given a criteria.
+  rpc ListResources(ListResourcesRequest) returns (ListResourcesResponse) {}
+
+  // Custom RPC for Telemetry: Lists the inherited telemetry given a site, instance or region ID.
+  rpc ListInheritedTelemetryProfiles(ListInheritedTelemetryProfilesRequest) returns (ListInheritedTelemetryProfilesResponse) {}
+
+  // Returns the upstream tree hierarchy given the resource ID in the request.
+  // The response contains a list of adjacent nodes, from which the tree can be reconstructed.
+  rpc GetTreeHierarchy(GetTreeHierarchyRequest) returns (GetTreeHierarchyResponse) {}
+
+  // Returns a list of the number of sites per region ID given the list of region IDs in the request.
+  // The response contains a list of objects with a region ID associated to the total amount of sites under it.
+  // The sites under a region account for all the sites under its child regions recursively, respecting the max-depth
+  // of parent relationships among regions.
+  rpc GetSitesPerRegion(GetSitesPerRegionRequest) returns (GetSitesPerRegionResponse) {}
+
+  // Deletes all resources of given kind for tenant.
+  rpc DeleteAllResources(DeleteAllResourcesRequest) returns (DeleteAllResourcesResponse) {}
+}
+
+enum ClientKind {
+  CLIENT_KIND_UNSPECIFIED = 0; // Unspecified
+  CLIENT_KIND_API = 1; // API server
+  CLIENT_KIND_RESOURCE_MANAGER = 2; // Resource manager
+  CLIENT_KIND_TENANT_CONTROLLER = 3; // Tenant Controller
+}
+
+message SubscribeEventsRequest {
+  // The name of the API client
+  string name = 1;
+
+  // version string of the Client
+  string version = 2;
+
+  // the kind of API client
+  ClientKind client_kind = 3;
+
+  // The resource kinds that this client provides or subscribes to. Can be empty to not receive any events.
+  repeated ResourceKind subscribed_resource_kinds = 4;
+}
+
+message SubscribeEventsResponse {
+  // EventKind is a inventory operation event kind for event subscriptions.
+  enum EventKind {
+    EVENT_KIND_UNSPECIFIED = 0;
+    EVENT_KIND_CREATED = 1;
+    EVENT_KIND_UPDATED = 2;
+    EVENT_KIND_DELETED = 3;
+  }
+  // For the first event response sent to the client, a UUID will be generated
+  // and assigned to that client. Subsequent requests must use this UUID.
+  string client_uuid = 1 [
+    (buf.validate.field).string = {uuid: true},
+    (buf.validate.field).ignore = IGNORE_IF_UNPOPULATED
+  ];
+  // Deprecated, use resource instead. The resource ID that was changed.
+  string resource_id = 2;
+  // The changed resource. On delete events this contains the last known state.
+  // On create and update events this contains the new state.
+  Resource resource = 3;
+  EventKind event_kind = 4;
+}
+
+message ChangeSubscribeEventsRequest {
+  // The UUID of the client to change the subscriptions for.
+  string client_uuid = 1 [
+    (buf.validate.field).string = {uuid: true},
+    (buf.validate.field).ignore = IGNORE_IF_UNPOPULATED
+  ];
+  // The new resource kinds that the client subscribes to. Can be empty to not receive any events.
+  // Replaces the current subscriptions.
+  repeated ResourceKind subscribed_resource_kinds = 4;
+}
+
+message ChangeSubscribeEventsResponse {}
+
+message CreateResourceRequest {
+  string client_uuid = 1 [(buf.validate.field).string.uuid = true];
+  Resource resource = 3;
+  // Definition of tenant_id can be seen as redundant since tenant_id is also defined in the nested resource.
+  // Extracting tenant information from nested structs could be expensive.
+  // Tenant related requests handling strategy has been created based on convention assuming that
+  // tenant is available on top level of requests, this approach comes with clarity of implementation.
+  // Underlying implementation enforces that tenant_id is consistent with tenant_id provided in the nested resource.
+  string tenant_id = 100 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).required = true
+  ];
+}
+
+enum ResourceKind {
+  RESOURCE_KIND_UNSPECIFIED = 0;
+
+  RESOURCE_KIND_REGION = 8;
+  RESOURCE_KIND_SITE = 9;
+  RESOURCE_KIND_OU = 10;
+
+  reserved 16; //  RESOURCE_KIND_PROJECT
+  reserved 17; //  RESOURCE_KIND_USER
+
+  RESOURCE_KIND_PROVIDER = 32;
+
+  RESOURCE_KIND_HOST = 48;
+  RESOURCE_KIND_HOSTSTORAGE = 49;
+  RESOURCE_KIND_HOSTNIC = 50;
+  RESOURCE_KIND_HOSTUSB = 51;
+  RESOURCE_KIND_HOSTGPU = 52;
+
+  RESOURCE_KIND_INSTANCE = 64;
+
+  RESOURCE_KIND_IPADDRESS = 95;
+  RESOURCE_KIND_NETWORKSEGMENT = 96;
+  RESOURCE_KIND_NETLINK = 97;
+  RESOURCE_KIND_ENDPOINT = 98;
+
+  RESOURCE_KIND_OS = 99;
+
+  RESOURCE_KIND_SINGLESCHEDULE = 100;
+  RESOURCE_KIND_REPEATEDSCHEDULE = 101;
+
+  RESOURCE_KIND_WORKLOAD = 110;
+  RESOURCE_KIND_WORKLOAD_MEMBER = 111;
+
+  RESOURCE_KIND_TELEMETRY_GROUP = 120;
+  RESOURCE_KIND_TELEMETRY_PROFILE = 121;
+
+  RESOURCE_KIND_TENANT = 130;
+
+  RESOURCE_KIND_RMT_ACCESS_CONF = 150;
+
+  RESOURCE_KIND_LOCALACCOUNT = 170;
+}
+
+message Resource {
+  oneof resource {
+    location.v1.RegionResource region = 1;
+    location.v1.SiteResource site = 2;
+
+    ou.v1.OuResource ou = 10;
+
+    provider.v1.ProviderResource provider = 30;
+
+    compute.v1.HostResource host = 40;
+    compute.v1.HoststorageResource hoststorage = 41;
+    compute.v1.HostnicResource hostnic = 42;
+    compute.v1.HostusbResource hostusb = 43;
+    compute.v1.HostgpuResource hostgpu = 44;
+
+    compute.v1.InstanceResource instance = 50;
+
+    network.v1.IPAddressResource ipaddress = 59;
+    network.v1.NetworkSegment network_segment = 60;
+    network.v1.NetlinkResource netlink = 61;
+    network.v1.EndpointResource endpoint = 62;
+
+    os.v1.OperatingSystemResource os = 70;
+
+    schedule.v1.SingleScheduleResource singleschedule = 80;
+    schedule.v1.RepeatedScheduleResource repeatedschedule = 81;
+
+    compute.v1.WorkloadResource workload = 90;
+    compute.v1.WorkloadMember workload_member = 91;
+
+    telemetry.v1.TelemetryGroupResource telemetry_group = 100;
+    telemetry.v1.TelemetryProfile telemetry_profile = 101;
+
+    tenant.v1.Tenant tenant = 130;
+
+    remoteaccess.v1.RemoteAccessConfiguration remote_access = 150;
+    localaccount.v1.LocalAccountResource local_account = 170;
+  }
+}
+
+// Filter resources with the given filter. The filter requires a filter string and a resource (kind) to be specified.
+// Also, limit and offset parameter are used for pagination.
+message ResourceFilter {
+  // The resource kind to filter on, must always be specified. Generally the resource's fields are unset,
+  // except for metadata filters that include inherited metadata.
+  Resource resource = 3;
+
+  uint32 limit = 512;
+  uint32 offset = 513;
+
+  // Optional filter to return only resources of interest.
+  // See https://google.aip.dev/160 for details.
+  // Note: for backwards compatability the fields `field_mask` and `resource` are used for filtering when `filter` is
+  // unset. This means an empty (=no) filter cannot be expressed at the moment. Clients wanting to use this filter
+  // mechanism must set `filter` and `resource` to select which resource type to return. Calls with an invalid filter
+  // will fail with `INVALID_ARGUMENT`.
+  // Limitations:
+  //  - Timestamps are not supported beyond treating them as simple strings.
+  //  - Filtering with only a naked literal (`filter: "foo"`) is not supported. Always provide a field.
+  //  - Field names must be given as they appear in the protobuf message, but see the notes on casing.
+  //  - The ":" (has) operator is not supported. Use the `has(<edge name>)` function extension instead.
+  //  - Nested fields may be accessed up to 5 levels deep. I.e. `site.region.name = "foo"`.
+  //  - If a string literal contains double quotes, the string itself must be single quoted. I.e. `metadata = '{"key": "value"}'`
+  // Extensions:
+  //  - All fields of the resource kind set in `resource` are hoisted into the global name space. I.e. can be accessed
+  //    directly without prefixing: `resource_id = "host-1234"` instead of `host.resource_id = ...`.
+  //  - Field names may be specified in both camelCase and snake_case.
+  //  - To check for edge presence, use the `has(<edge_name>)` operator. E.g.: `has(site)` to filter by resources that
+  //    are linked to a site. Can be used on nested edges: `has(site.region)`.
+  //  - String equality comparisons are case insensitive. `name = "foo"` and `name = "FOO"` are equivalent.
+  //  - String equality comparisons are fuzzy. `name = "abc"` will match `abc`, `abcd` and `123abc`.
+  //  - String equality comparisons may contain one or multiple wildcards `*` which match any number of characters.
+  string filter = 4;
+
+  // Optional, comma-seperated list of fields that specify the sorting order of the requested resources.
+  // By default, resources are returned in alphanumerical and ascending order based on their resource ID.
+  // Fields can be given in either their proto `foo_bar` and JSON `fooBar` casing.
+  // See https://google.aip.dev/132 for details.
+  // Additional limitations: Ordering on nested fields, such as `foo.bar` is not supported.
+  string order_by = 5;
+}
+
+message FindResourcesRequest {
+  string client_uuid = 1 [(buf.validate.field).string.uuid = true];
+  ResourceFilter filter = 2;
+}
+
+message FindResourcesResponse {
+  message ResourceTenantIDCarrier {
+    string tenant_id = 1 [(buf.validate.field).string.uuid = true];
+    string resource_id = 2;
+  }
+  repeated ResourceTenantIDCarrier resources = 5;
+  // Deprecated. Use total_elements instead.
+  bool has_next = 16;
+
+  // Total number of items the find request would return, if not limited by pagination.
+  // Callers can use this value to determine if there are more elements to be fetched,
+  // by comparing the supplied offset and returned items to the total:
+  // bool more = offset + len(resource_id) < total_elements
+  int32 total_elements = 2;
+}
+
+message ListResourcesRequest {
+  string client_uuid = 1 [(buf.validate.field).string.uuid = true];
+  ResourceFilter filter = 2;
+}
+
+message ListResourcesResponse {
+  repeated GetResourceResponse resources = 1;
+  // Deprecated. Use total_elements instead.
+  bool has_next = 16;
+
+  // Total number of items the list request would return, if not limited by pagination.
+  // Callers can use this value to determine if there are more elements to be fetched,
+  // by comparing the supplied offset and returned items to the total:
+  // bool more = offset + len(resources) < total_elements
+  int32 total_elements = 2;
+}
+
+message GetResourceRequest {
+  string client_uuid = 1 [(buf.validate.field).string.uuid = true];
+  string resource_id = 2;
+  string tenant_id = 100 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).required = true
+  ];
+}
+
+message GetResourceResponse {
+  Resource resource = 1;
+  // Contains the rendered metadata with format as json string. Example: [{"key":"cluster-name","value":""},{"key":"app-id","value":""}]
+  message ResourceMetadata {
+    string phy_metadata = 1;
+    string logi_metadata = 2;
+  }
+  ResourceMetadata rendered_metadata = 200;
+}
+
+message UpdateResourceRequest {
+  string client_uuid = 1 [(buf.validate.field).string.uuid = true];
+  string resource_id = 2;
+  google.protobuf.FieldMask field_mask = 3 [(buf.validate.field).required = true];
+  Resource resource = 4;
+  // Definition of tenant_id can be seen as redundant since tenant_id is also defined in the nested resource.
+  // Extracting tenant information from nested structs could be expensive.
+  // Tenant related requests handling strategy has been created based on convention assuming that
+  // tenant is available on top level of requests, this approach comes with clarity of implementation.
+  // Underlying implementation enforces that tenant_id is consistent with tenant_id provided in the nested resource.
+  string tenant_id = 100 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).required = true
+  ];
+}
+
+message DeleteResourceRequest {
+  string client_uuid = 1 [(buf.validate.field).string.uuid = true];
+  string resource_id = 2;
+  string tenant_id = 100 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).required = true
+  ];
+}
+
+message DeleteResourceResponse {}
+
+message ListInheritedTelemetryProfilesRequest {
+  message InheritBy {
+    oneof id {
+      option (buf.validate.oneof).required = true;
+      string instance_id = 1;
+      string site_id = 2;
+      string region_id = 3;
+    }
+  }
+
+  string client_uuid = 1 [(buf.validate.field).string.uuid = true];
+
+  // Specifies the base resource ID to inherit from (Instance, Site, or Region ID).
+  InheritBy inherit_by = 10 [(buf.validate.field).required = true];
+
+  // Specify a filter on the inherited telemetry profiles.
+  // Allows also to specify pagination parameters (these must always be set)
+  // Note: we support ONLY the new `AIP-160`-style filter, so filter.fieldmask and filter.resource are not supported
+  ResourceFilter filter = 15 [(buf.validate.field).required = true];
+  // Definition of tenant_id can be seen as redundant since tenant_id is also defined in the nested resource.
+  // Extracting tenant information from nested structs could be expensive.
+  // Tenant related requests handling strategy has been created based on convention assuming that
+  // tenant is available on top level of requests, this approach comes with clarity of implementation.
+  string tenant_id = 100 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).required = true
+  ];
+}
+
+message ListInheritedTelemetryProfilesResponse {
+  // The inherited Telemetry Profiles given the "inherit_by" param given in the request
+  repeated telemetry.v1.TelemetryProfile telemetry_profiles = 1;
+
+  // Total number of Telemetry Profiles the request would return, if not limited by pagination.
+  // Callers can use this value to determine if there are more elements to be fetched,
+  // by comparing the supplied offset and returned items to the total:
+  // bool more = offset + len(resource_id) < total_elements
+  int32 total_elements = 10;
+}
+
+message GetTreeHierarchyRequest {
+  string client_uuid = 1 [(buf.validate.field).string.uuid = true];
+  // List of resource ID to filter upon
+  repeated string filter = 10 [(buf.validate.field).repeated = {
+    unique: true
+    items: {
+      required: true // Must be populated, cannot be empty string
+      string: {
+        // We only accept host, region, site and OU
+        pattern: "^host-[0-9a-f]{8}$|^site-[0-9a-f]{8}$|^region-[0-9a-f]{8}$|^ou-[0-9a-f]{8}$"
+      }
+    }
+  }]; // resource ID, generated by inventory on Create
+  // Order the tree by descending depth (root to leaf), otherwise ordering is by ascending depth (leaf to root).
+  bool descending = 15;
+  // Definition of tenant_id can be seen as redundant since it could be provided as part of nested filter.
+  // Extracting tenant information from nested structs could be expensive.
+  // Tenant related requests handling strategy has been created based on convention assuming that
+  // tenant is available on top level of requests, this approach comes with clarity of implementation.
+  string tenant_id = 100 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).required = true
+  ];
+}
+
+message GetTreeHierarchyResponse {
+  message Node {
+    string resource_id = 1 [(buf.validate.field).string = {
+      // We only expect host, region, site and OU
+      pattern: "^host-[0-9a-f]{8}$|^site-[0-9a-f]{8}$|^region-[0-9a-f]{8}$|^ou-[0-9a-f]{8}$"
+    }];
+    ResourceKind resource_kind = 2 [(buf.validate.field).enum = {
+      in: [
+        8, // Region
+        9, // Site
+        10, // Ou
+        48 // Host
+      ]
+    }];
+  }
+  message TreeNode {
+    Node current_node = 1;
+    repeated Node parent_nodes = 2;
+
+    // Name of the resource if available, otherwise unset
+    string name = 10;
+    // The depth in the tree of the current node
+    int32 depth = 11 [
+      (buf.validate.field).int32.gte = 0,
+      (buf.validate.field).int32.lte = 20
+    ];
+  }
+  // Ordered list of tree nodes by depth
+  repeated TreeNode tree = 1;
+}
+
+message GetSitesPerRegionRequest {
+  string client_uuid = 1 [(buf.validate.field).string.uuid = true];
+  // List of resource ID to filter upon
+  repeated string filter = 10 [(buf.validate.field).repeated = {
+    unique: true
+    items: {
+      required: true // Must be populated, cannot be empty string
+      string: {
+        // We only accept region
+        pattern: "^region-[0-9a-f]{8}$"
+      }
+    }
+  }];
+  // Definition of tenant_id can be seen as redundant since tenant_id is also defined in the nested resource.
+  // Extracting tenant information from nested structs could be expensive.
+  // Tenant related requests handling strategy has been created based on convention assuming that
+  // tenant is available on top level of requests, this approach comes with clarity of implementation.
+  string tenant_id = 100 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).required = true
+  ];
+}
+
+message GetSitesPerRegionResponse {
+  message Node {
+    string resource_id = 1 [(buf.validate.field).string = {
+      // We only expect region
+      pattern: "^region-[0-9a-f]{8}$"
+    }];
+    int32 child_sites = 2;
+  }
+  // Ordered list of nodes
+  repeated Node regions = 1;
+}
+
+message DeleteAllResourcesRequest {
+  string client_uuid = 1 [(buf.validate.field).string.uuid = true];
+  ResourceKind resource_kind = 2;
+  bool enforce = 3; // Enforces deletion for resources supporting 2phase deletion. Transparent for all other resources.
+  string tenant_id = 100 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).required = true
+  ];
+}
+
+message DeleteAllResourcesResponse {}

@@ -1,0 +1,73 @@
+// SPDX-FileCopyrightText: (C) 2025 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+
+package ou.v1;
+
+import "buf/validate/validate.proto";
+import "ent/opts.proto";
+import "infrainv/infrainv.proto";
+
+option go_package = "github.com/open-edge-platform/infra-core/inventory/v2/pkg/api/ou/v1;ouv1";
+
+message OuResource {
+  option (ent.schema) = {gen: true};
+  option (infrainv.schemaExtension) = {
+    indexes: [
+      {
+        unique: false
+        fields: ["tenant_id"]
+      }
+    ]
+  };
+
+  string resource_id = 1 [
+    (ent.field) = {unique: true},
+    (buf.validate.field).string = {
+      pattern: "^ou-[0-9a-f]{8}$"
+      max_bytes: 11
+    },
+    (buf.validate.field).ignore = IGNORE_IF_UNPOPULATED
+  ];
+  string name = 2 [(ent.field) = {optional: true}]; // user-provided, human-readable name of OU
+  string ou_kind = 3 [(ent.field) = {optional: true}]; // kinds like "Organization", "BU"...
+  OuResource parent_ou = 4 [(ent.edge) = {unique: true}]; // Optional parent OU.
+  repeated OuResource children = 5 [(ent.edge) = {ref: "parent_ou"}]; // References to children OU.
+  string metadata = 50 [(ent.field) = {optional: true}]; // Record metadata with format as json string. Example: [{"key":"cluster-name","value":""},{"key":"app-id","value":""}]
+
+  string tenant_id = 100 [
+    (ent.field) = {
+      immutable: true
+      optional: false
+    },
+    (buf.validate.field).string = {
+      uuid: true
+      max_bytes: 36
+    },
+    (buf.validate.field).ignore = IGNORE_IF_UNPOPULATED
+  ]; // Tenant Identifier
+
+  string created_at = 200 [(ent.field) = {
+    immutable: true
+    optional: false
+    schema_type: [
+      {
+        key: "postgres"
+        value: "TIMESTAMP"
+      }
+    ]
+  }]; // Creation timestamp
+
+  string updated_at = 201 [(ent.field) = {
+    // The field immutable from API perspective, will be changed internally in the hooks.
+    immutable: false
+    optional: false
+    schema_type: [
+      {
+        key: "postgres"
+        value: "TIMESTAMP"
+      }
+    ]
+  }]; // Update timestamp
+}

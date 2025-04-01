@@ -1,0 +1,17 @@
+// SPDX-FileCopyrightText: (C) 2025 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+
+package resources.status.v1;
+
+// This file contains the proto definitions of status-related fields that can be used across different proto objects.
+option go_package = "github.com/open-edge-platform/infra-core/apiv2/v2/internal/pbapi/resources/status/v1;statusv1";
+
+// The status indicator.
+enum StatusIndication {
+  STATUS_INDICATION_UNSPECIFIED = 0;
+  STATUS_INDICATION_ERROR = 1;
+  STATUS_INDICATION_IN_PROGRESS = 2;
+  STATUS_INDICATION_IDLE = 3;
+}

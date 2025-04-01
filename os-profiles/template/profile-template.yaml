@@ -1,0 +1,27 @@
+---
+# SPDX-FileCopyrightText: (C) 2024 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+appVersion: apps/v1
+metadata:
+  release: 0.0.0-dev  # OS Profile version, placeholder, override in post-merge CI
+  version: 0.1.0  # TODO: remove unused
+spec:
+  # human-readable name of OS profile
+  name:
+  # OS_TYPE_IMMUTABLE or OS_TYPE_MUTABLE,
+  # should match values in https://github.com/open-edge-platform/infra-core/blob/main/inventory/api/os/v1/os.proto#L25-L29
+  type:
+  # must be unique across all files under manifest/en-profile
+  profileName:
+  # string, path in Release Service or any other URL to download OS from.
+  osImageUrl:
+  # OS image version, should be retrievable from the running OS.
+  osImageVersion:
+  # SHA256 checksum for integrity check
+  osImageSha256:
+  # security settings for OS profile,
+  # should match values in https://github.com/open-edge-platform/infra-core/blob/main/inventory/api/os/v1/os.proto#L18-L22
+  securityFeature:
+  platformBundle:
+    installerScript:  # URL of the installer script part of the platform bundle
+    cloudInitScript:  # URL of the cloud-init script part of the platform bundle

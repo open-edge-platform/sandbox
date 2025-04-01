@@ -1,0 +1,151 @@
+// SPDX-FileCopyrightText: (C) 2025 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+
+package os.v1;
+
+import "buf/validate/validate.proto";
+import "ent/opts.proto";
+import "infrainv/infrainv.proto";
+
+option go_package = "github.com/open-edge-platform/infra-core/inventory/v2/pkg/api/os/v1;osv1";
+
+// SecurityFeature describes the security capabilities of a resource.
+// Due to limitations of the Ent code generator, this enum cannot be a repeated
+// field in resource messages. Hence, we have to manually list composite options
+// like SB+FDE.
+enum SecurityFeature {
+  SECURITY_FEATURE_UNSPECIFIED = 0;
+  SECURITY_FEATURE_NONE = 1;
+  SECURITY_FEATURE_SECURE_BOOT_AND_FULL_DISK_ENCRYPTION = 2;
+}
+
+// OsType describes type of operating system.
+enum OsType {
+  OS_TYPE_UNSPECIFIED = 0;
+  OS_TYPE_MUTABLE = 1;
+  OS_TYPE_IMMUTABLE = 2;
+}
+
+// OsProviderKind describes "owner" of the OS, that will drive OS provisioning.
+enum OsProviderKind {
+  OS_PROVIDER_KIND_UNSPECIFIED = 0;
+  OS_PROVIDER_KIND_INFRA = 1;
+  OS_PROVIDER_KIND_LENOVO = 2;
+}
+
+message OperatingSystemResource {
+  option (ent.schema) = {gen: true};
+  option (infrainv.schemaExtension) = {
+    indexes: [
+      {
+        unique: false
+        fields: ["tenant_id"]
+      }
+    ]
+  };
+
+  string resource_id = 1 [
+    (ent.field) = {unique: true},
+    (buf.validate.field).string = {
+      pattern: "^os-[0-9a-f]{8}$"
+      max_bytes: 11
+    },
+    (buf.validate.field).ignore = IGNORE_IF_UNPOPULATED
+  ]; // Resource ID of this OperatingSystemResource
+
+  string name = 2 [(ent.field) = {optional: true}]; // user-provided, human-readable name of OS
+  string architecture = 3 [(ent.field) = {optional: true}]; // CPU architecture supported
+  string kernel_command = 4 [(ent.field) = {optional: true}]; // Kernel Command Line Options
+
+  repeated string update_sources = 5 [
+    (ent.field) = {optional: true},
+    (buf.validate.field).repeated.items.string = {max_bytes: 4000}
+  ]; // OS Update Sources. Should be in 'DEB822 Source Format' for Debian style OSs
+
+  string image_url = 6 [(ent.field) = {
+    optional: true
+    immutable: true
+  }]; // OS image URL. URL of the original installation source.
+
+  string image_id = 13 [(ent.field) = {
+    optional: true
+    immutable: true
+  }]; // OS image ID. This must be a unique identifier of OS image that can be retrieved from running OS. Used by IMMUTABLE only.
+
+  string sha256 = 7 [
+    (ent.field) = {
+      optional: true
+      immutable: true
+    },
+    (buf.validate.field).string = {
+      len_bytes: 64
+      pattern: "^[a-f0-9]+$"
+    },
+    (buf.validate.field).ignore = IGNORE_IF_UNPOPULATED
+  ]; // SHA256 checksum of the OS resource in HEX. It's length is 32 bytes, but string representation of HEX is twice long (64 chars)
+  string profile_name = 8 [(ent.field) = {
+    optional: true
+    immutable: true
+  }]; // Name of an OS profile that the OS resource belongs to. Uniquely identifies family of OSResources.
+  string profile_version = 12 [(ent.field) = {
+    optional: true
+    immutable: true
+  }]; // Version of an OS profile that the OS resource belongs to. Along with profile_name uniquely identifies OS resource.
+  string installed_packages = 9 [(ent.field) = {optional: true}]; // Freeform text, OS-dependent. A list of package names, one per line (newline separated). Should not contain version info.
+  SecurityFeature security_feature = 10 [(ent.field) = {
+    optional: true
+    immutable: true
+  }]; // Indicating if this OS is capable of supporting features like Secure Boot (SB) and Full Disk Encryption (FDE).
+
+  OsType os_type = 11 [(ent.field) = {
+    optional: true
+    immutable: true
+  }]; // Indicating the type of OS (for example, mutable or immutable).
+
+  OsProviderKind os_provider = 14 [(ent.field) = {
+    optional: false
+    immutable: true
+  }]; // Indicating the provider of OS (e.g., Infra or Lenovo).
+
+  string platform_bundle = 15 [(ent.field) = {
+    optional: true
+    immutable: true
+  }]; // An opaque JSON string storing a reference to custom installation script(s) that supplements the base OS with additional OS-level dependencies/configurations. If empty, the default OS installation will be used.
+
+  string tenant_id = 100 [
+    (ent.field) = {
+      immutable: true
+      optional: false
+    },
+    (buf.validate.field).string = {
+      uuid: true
+      max_bytes: 36
+    },
+    (buf.validate.field).ignore = IGNORE_IF_UNPOPULATED
+  ]; // Tenant Identifier
+
+  string created_at = 200 [(ent.field) = {
+    immutable: true
+    optional: false
+    schema_type: [
+      {
+        key: "postgres"
+        value: "TIMESTAMP"
+      }
+    ]
+  }]; // Creation timestamp
+
+  string updated_at = 201 [(ent.field) = {
+    // The field immutable from API perspective, will be changed internally in the hooks.
+    immutable: false
+    optional: false
+    schema_type: [
+      {
+        key: "postgres"
+        value: "TIMESTAMP"
+      }
+    ]
+  }]; // Update timestamp
+}

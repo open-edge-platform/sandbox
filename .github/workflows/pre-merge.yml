@@ -1,0 +1,170 @@
+---
+# SPDX-FileCopyrightText: (C) 2025 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+name: Pre-Merge CI Pipeline
+
+on:
+  pull_request:
+    branches:
+      - main
+      - release-*
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pre-checks:
+    runs-on: ubuntu-latest
+    outputs:
+      filtered_projects: ${{ steps.filter-changes.outputs.filtered_projects }}
+      other_changed_projects: ${{ steps.filter-changes.outputs.other_changed_projects }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Verify Branch Name"
+        uses: open-edge-platform/orch-ci/verify-branch-name@main
+      - name: "Discover Changed Subfolders"
+        id: discover-changes
+        uses: open-edge-platform/orch-ci/discover-changed-subfolders@main
+      - name: "Filter Out Unwanted Changed Subfolders"
+        id: filter-changes
+        run: |
+          folders_to_remove='[".github",".reuse","LICENSES",".git","os-profiles"]'
+          
+          changed_projects='${{ steps.discover-changes.outputs.changed_projects }}'
+          filtered_projects=$(echo "$changed_projects" | jq -cr --argjson folders_to_remove "$folders_to_remove" 'map(select(. as $item | $folders_to_remove | index($item) | not))')
+          other_changed_projects=$(echo "$changed_projects" | jq -cr --argjson filtered_projects "$filtered_projects" 'map(select(. as $item | $filtered_projects | index($item) | not))')
+
+          echo "filtered_projects=$filtered_projects" >> $GITHUB_OUTPUT
+          echo "other_changed_projects=$other_changed_projects" >> $GITHUB_OUTPUT
+  pre-merge-pipeline:
+    needs: pre-checks
+    if: ${{ needs.pre-checks.outputs.filtered_projects != '[]' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        project_folder: ${{ fromJson(needs.pre-checks.outputs.filtered_projects) }}
+    uses: open-edge-platform/orch-ci/.github/workflows/pre-merge.yml@main
+    with:
+      run_security_scans: true
+      run_version_check: true
+      run_dep_version_check: true
+      run_build: true
+      run_lint: true
+      run_test: true
+      run_validate_clean_folder: true
+      run_docker_build: true
+      run_scan_containers: false
+      run_artifact: false
+      prefix_tag_separator: "/"
+      project_folder: ${{ matrix.project_folder }}
+    secrets: inherit
+  pre-merge-os-profiles:
+    needs: pre-checks
+    if: ${{ contains(needs.pre-checks.outputs.other_changed_projects, 'os-profiles') }}
+    uses: open-edge-platform/orch-ci/.github/workflows/pre-merge.yml@main
+    with:
+      bootstrap_tools: "yq,nodejs"
+      run_security_scans: true
+      run_version_check: true
+      run_dep_version_check: false
+      run_build: false
+      run_lint: true
+      run_test: true
+      run_validate_clean_folder: false
+      run_docker_build: false
+      run_scan_containers: false
+      run_artifact: false
+      prefix_tag_separator: "/"
+      project_folder: "os-profiles"
+    secrets: inherit
+  pre-merge-os-profiles-2:
+    needs: pre-checks
+    if: ${{ contains(needs.pre-checks.outputs.other_changed_projects, 'os-profiles') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # Checkout the branch that triggered the workflow to avoid detached HEAD
+          ref: ${{ github.head_ref }}
+      - uses: open-edge-platform/orch-ci/.github/actions/bootstrap@main
+        with:
+          bootstrap_tools: "yq,aws,oras"
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.NO_AUTH_S3_PUSH_USERNAME }}
+          aws-secret-access-key: ${{ secrets.NO_AUTH_S3_PUSH_PASSWD }}
+          aws-region: us-west-2
+      - name: "Run validate OS profile"
+        run: |
+          cd .github/workflows/scripts && ./validate_os_profiles.sh ${{ secrets.S3_NAME }}
+      # TODO: generalize this part of the CI for all subcomponents
+      - name: "Get PR Description"
+        id: get_pr_description
+        run: |
+          PR_DESCRIPTION=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" \
+            | jq -r '.body')
+
+          PUBLISH=$(echo "$PR_DESCRIPTION" | grep -q '/publish🚢' && echo true || echo false)
+          echo $PUBLISH
+          echo "PUBLISH=$PUBLISH" >> $GITHUB_ENV
+      - name: Configure AWS credentials
+        if: ${{ env.PUBLISH == 'true' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.NO_AUTH_ECR_PUSH_USERNAME }}
+          aws-secret-access-key: ${{ secrets.NO_AUTH_ECR_PUSH_PASSWD }}
+          aws-region: us-west-2
+      - name: Login to Amazon ECR
+        if: ${{ env.PUBLISH == 'true' }}
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          registries: "080137407410"
+      - if: ${{ env.PUBLISH == 'true'}}
+        name: "Publish OS profiles for development purposes"
+        working-directory: "os-profiles"
+        run: |
+          TAGS=$(git rev-parse --abbrev-ref HEAD | sed 's/\//_/g') make artifact-publish
+      - if: ${{ env.PUBLISH == 'true' }}
+        name: "Publish comment to PR"
+        working-directory: "os-profiles"
+        run: |
+          ALL_PROFILES=$(find *.yaml)
+          OCI_REPOSITORY="edge-orch/en/files/os-profile"
+          REGISTRY="registry-rs.edgeorchestration.intel.com"
+          TAG=$(git rev-parse --abbrev-ref HEAD | sed 's/\//_/g')
+          COMMENT="🚀🚀 Published OSProfiles with tag \"${TAG}\"!"
+          for profile in $ALL_PROFILES; do
+            COMMENT+="\n- oci://${REGISTRY}/${OCI_REPOSITORY}/${profile}:${TAG}"
+          done
+          curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+               -H "Accept: application/vnd.github.v3+json" \
+               --data "{\"body\": \"$COMMENT\"}" \
+               "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments"
+
+  final-check:
+    runs-on: ubuntu-latest
+    if: ${{ always() }}
+    needs: [pre-merge-pipeline, pre-merge-os-profiles]
+    steps:
+      - name: Final Status Check
+        run: |
+          pre_merge_pipeline_result="${{ needs.pre-merge-pipeline.result }}"
+          pre_merge_os_profiles_result="${{ needs.pre-merge-os-profiles.result }}"
+          
+          echo "Pre-merge pipeline result: $pre_merge_pipeline_result"
+          echo "Pre-merge os-profiles result: $pre_merge_os_profiles_result"
+
+          if [ "$pre_merge_pipeline_result" == "success" ] || [ "$pre_merge_pipeline_result" == "skipped" ] || [ "$pre_merge_os_profiles_result" == "success" ]; then
+            echo "At least one pre-merge check passed successfully."
+          else
+            echo "Both pre-merge checks failed or were skipped. PR can't get merged"
+            exit 1
+          fi

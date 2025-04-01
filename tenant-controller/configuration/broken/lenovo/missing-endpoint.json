@@ -1,0 +1,9 @@
+[
+    {
+      "auto_provision": true,
+      "loca_ca_cert": "-----BEGIN CERTIFICATE-----\nMIIBYDCCAQegAwIBAgIRANkLzIEDboebuYRdSG13nhMwCgYIKoZIzj0EAwIwDzEN\nMAsGA1UEAxMETE9DQTAgFw0yMjExMDIxNjEyMjRaGA8yMTIyMTAwOTE2MTIyNFow\nDzENMAsGA1UEAxMETE9DQTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABDm7Snax\nmbPGKi8yoEpbNs3CyY0GAZp6+W9br+KhHwxdy8JmQOcDZp7FFnTnyu/WFBdFrpvY\nIK5g9whLC/WZ4jijQjBAMA4GA1UdDwEB/wQEAwICpDAPBgNVHRMBAf8EBTADAQH/\nMB0GA1UdDgQWBBS9klFV6Z6NVN7uRHbF04lh8P2ryDAKBggqhkjOPQQDAgNHADBE\nAiAWJRigjzQ4tTOjMN1xm28zrHDoMtGiAERNw2OPfp+gSgIgHait0IBXitCpzJYS\nKE8gtR6W+Z9dHBpfbSAqnosLcgQ=\n-----END CERTIFICATE-----\n",
+      "name": "LOCA1",
+      "password": "somethingelse",
+      "username": "something"
+    }
+]

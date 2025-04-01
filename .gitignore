@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: (C) 2025 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+*.swp
+*.test
+.DS_Store
+.idea
+.vscode
+.cache
+artifacts
+out/
+vendor
+venv*
+*.iml
+ci/
+clamav*
+trivy*
+
+# Go workspace file
+go.work
+
+# Useful when developing with coder vms
+.tool-versions

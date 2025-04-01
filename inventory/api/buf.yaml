@@ -1,0 +1,30 @@
+---
+# SPDX-FileCopyrightText: (C) 2025 Intel Corporation
+# # SPDX-License-Identifier: Apache-2.0
+
+version: v1
+deps:
+  - buf.build/bufbuild/protovalidate
+breaking:
+  use:
+    - FILE
+lint:
+  use:
+    - DEFAULT
+    - ENUM_FIRST_VALUE_ZERO
+  ignore_only:
+    PACKAGE_VERSION_SUFFIX:
+      - ent/opts.proto
+      - errors/errors.proto
+      - infrainv/infrainv.proto
+    FIELD_LOWER_SNAKE_CASE:
+      - infrainv/infrainv.proto   # schemaExtension field should be schema_extension
+    ENUM_VALUE_PREFIX:
+      - errors/errors.proto
+    ENUM_ZERO_VALUE_SUFFIX:
+      - errors/errors.proto
+    # In accordance with AIP-131 we return un-wrapped resource messages on CRUD RPCs.
+    RPC_RESPONSE_STANDARD_NAME:
+      - inventory/v1/inventory.proto
+    RPC_REQUEST_RESPONSE_UNIQUE:
+      - inventory/v1/inventory.proto
