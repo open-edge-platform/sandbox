@@ -15,7 +15,7 @@ on:
 
 jobs:
   post-merge-pipeline:
-    uses: open-edge-platform/orch-ci/.github/workflows/post-merge.yml@cosign
+    uses: open-edge-platform/orch-ci/.github/workflows/post-merge.yml@sign_binaries
     with:
       run_security_scans: true
       run_version_check: false
