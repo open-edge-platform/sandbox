@@ -114,13 +114,14 @@ common-docker-build: ## Build Docker image
 		--build-arg VERSION="$(LABEL_VERSION)" \
 		--build-arg REVISION="$(LABEL_REVISION)" \
 		--build-arg BUILD_DATE="$(LABEL_BUILD_DATE)"
+	docker tag $(DOCKER_IMG_NAME):$(DOCKER_VERSION) $(DOCKER_TAG_BRANCH)
+	docker tag $(DOCKER_IMG_NAME):$(DOCKER_VERSION) $(DOCKER_TAG)
 	@rm -rf vendor common.mk version.mk
 
 common-docker-push: ## Tag and push Docker image
 	# TODO: remove ecr create
 	aws ecr create-repository --region us-west-2 --repository-name $(DOCKER_REPOSITORY)/$(DOCKER_IMG_NAME) || true
-	docker tag $(DOCKER_IMG_NAME):$(DOCKER_VERSION) $(DOCKER_TAG_BRANCH)
-	docker tag $(DOCKER_IMG_NAME):$(DOCKER_VERSION) $(DOCKER_TAG)
+	
 	docker push $(DOCKER_TAG)
 ifeq ($(DOCKER_TAG_BRANCH_PUSH), true)
 	docker push $(DOCKER_TAG_BRANCH)
