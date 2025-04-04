@@ -12,12 +12,12 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/open-edge-platform/infra-core/inventory/v2 v2.23.0
-	github.com/open-edge-platform/orch-library/go v0.5.29
+	github.com/open-edge-platform/orch-library/go v0.5.30
 	github.com/open-edge-platform/orch-utils/tenancy-datamodel v0.0.0-20250401180309-9c2571c45857
 	github.com/prometheus/client_golang v1.21.1
 	github.com/stretchr/testify v1.10.0
 	golang.org/x/exp v0.0.0-20250305212735-054e65f0b394
-	google.golang.org/grpc v1.71.0
+	google.golang.org/grpc v1.71.1
 	google.golang.org/protobuf v1.36.6
 	k8s.io/apimachinery v0.32.3
 	k8s.io/client-go v0.32.3
