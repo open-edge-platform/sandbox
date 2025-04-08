@@ -5,6 +5,10 @@
 name: Post-Merge Bulk Import Tools
 
 on:
+  pull_request:
+    branches:
+      - main
+      - release-*
   push:
     branches:
       - main
@@ -15,7 +19,7 @@ on:
 
 jobs:
   post-merge-pipeline:
-    uses: open-edge-platform/orch-ci/.github/workflows/post-merge.yml@sign_binaries
+    uses: open-edge-platform/orch-ci/.github/workflows/post-merge.yml@test_ossf
     with:
       run_security_scans: true
       run_version_check: false
