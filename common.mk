@@ -1,249 +1,153 @@
-# common.mk - common targets for Infra Core repository
-
 # SPDX-FileCopyrightText: (C) 2025 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-# Makefile Style Guide:
-# - Help will be generated from ## comments at end of any target line
-# - Use smooth parens $() for variables over curly brackets ${} for consistency
-# - Continuation lines (after an \ on previous line) should start with spaces
-#   not tabs - this will cause editor highlighting to point out editing mistakes
-# - When creating targets that run a lint or similar testing tool, print the
-#   tool version first so that issues with versions in CI or other remote
-#   environments can be caught
+# Configure shell
+SHELL = bash -e -o pipefail
 
-# Optionally include tool version checks, not used in Docker builds
-ifeq ($(TOOL_VERSION_CHECK), 1)
-	include ../version.mk
-endif
+.PHONY: help build
 
-#### Variables ####
+# Add a a suffix to the version if needed
+# This is used in CI to add a suffix to the version when/if publishing images in the pre-merge job
+VERSION_SUFFIX              ?=
 
-# Shell config variable
-SHELL	:= bash -eu -o pipefail
+VERSION                     ?= $(shell cat ./VERSION)$(VERSION_SUFFIX)
+GIT_BRANCH                  ?= $(shell git branch --show-current | sed -r 's/[\/]+/-/g')$(VERSION_SUFFIX)
 
-# GO variables
-GOARCH	:= $(shell go env GOARCH)
-GOCMD   := GOPRIVATE="github.com/open-edge-platform/*" go
 
-# Path variables
-OUT_DIR	:= out
-SRC     := $(shell find . -type f -name '*.go' ! -name '*_test.go')
-DEPS    := go.mod go.sum
+DOCKER_REGISTRY             ?= 080137407410.dkr.ecr.us-west-2.amazonaws.com/edge-orch
+DOCKER_REPOSITORY           ?= orch-ui
+DOCKER_IMG_NAME             := $(PROJECT_NAME)
+DOCKER_TAG                  := $(DOCKER_REGISTRY)/$(DOCKER_REPOSITORY)/$(DOCKER_IMG_NAME):$(VERSION)
+DOCKER_TAG_BRANCH           := $(DOCKER_REGISTRY)/$(DOCKER_REPOSITORY)/$(DOCKER_IMG_NAME):$(GIT_BRANCH)
+DOCKER_CONTEXT              := "$(shell pwd)/"
+DOCKER_FILE                 := "$(shell pwd)/build/Dockerfile"
 
-# Docker variables
-DOCKER_ENV              := DOCKER_BUILDKIT=1
-OCI_REGISTRY            ?= 080137407410.dkr.ecr.us-west-2.amazonaws.com
-OCI_REPOSITORY          ?= edge-orch/infra
-DOCKER_REGISTRY         ?= $(OCI_REGISTRY)
-DOCKER_REPOSITORY       ?= $(OCI_REPOSITORY)
-DOCKER_TAG              := $(DOCKER_REGISTRY)/$(DOCKER_REPOSITORY)/$(DOCKER_IMG_NAME):$(VERSION)
-DOCKER_TAG_BRANCH	    := $(DOCKER_REGISTRY)/$(DOCKER_REPOSITORY)/$(DOCKER_IMG_NAME):$(DOCKER_VERSION)
-# Decides if we shall push image tagged with the branch name or not.
-DOCKER_TAG_BRANCH_PUSH	?= true
-LABEL_REPO_URL          ?= $(shell git remote get-url $(shell git remote | head -n 1))
-LABEL_VERSION           ?= $(VERSION)
-LABEL_REVISION          ?= $(GIT_COMMIT)
-LABEL_BUILD_DATE        ?= $(shell date -u "+%Y-%m-%dT%H:%M:%SZ")
+## Docker labels. Only set ref and commit date if committed
+DOCKER_LABEL_VCS_URL        ?= $(shell git remote get-url $(shell git remote))
+DOCKER_LABEL_VCS_REF        := $(shell git rev-parse HEAD)
+DOCKER_LABEL_BUILD_DATE     ?= $(shell date -u "+%Y-%m-%dT%H:%M:%SZ")
+DOCKER_LABEL_COMMIT_DATE    := $(shell git show -s --format=%cd --date=iso-strict HEAD)
 
-DB_CONTAINER_NAME 		:= $(PROJECT_NAME)-db
+HELM_CHART_PREFIX           ?= charts
+HELM_CHART_PATH             := "$(shell pwd)/deploy/"
 
-YAML_FILES := $(shell find . -type f \( -name '*.yaml' -o -name '*.yml' \) -print )
-YAML_IGNORE ?= vendor, .github/workflows, $(VENV_NAME)
-YAML_LINE_LENGHT ?= 99
+HELM_CHART_NAME             := orch-ui-$(PROJECT_NAME)
+HELM_DIRS                   := ./deploy/
 
-# Docker networking flags for the database container.
-# The problem is as follows: On a local MacOS machine we want to expose the port
-# of the DB to the native host to enable smooth tooling and unit tests. During
-# CI we're already inside a container, hence have to attach the DB container to
-# the same network stack as the job. Because the port (-p) syntax cannot be used
-# at the same time as the --network container:x flag, we need this variable.
-ifeq ($(shell echo $${CI_CONTAINER:-false}), true)
-  DOCKER_NETWORKING_FLAGS = --network container:$$HOSTNAME
-else
-  DOCKER_NETWORKING_FLAGS = -p 5432:5432
-endif
+## These labels need valid content or to be blank
+LABEL_DESCRIPTION           := $(shell echo "Orch UI")
+LABEL_LICENSE               ?= $(shell echo "Apache-2.0")
+LABEL_TITLE                 ?= ${DOCKER_REPOSITORY}
+LABEL_URL                   ?= ${DOCKER_LABEL_VCS_URL}
+LABEL_MAINTAINER            ?= $(shell echo "Orch UI Maintainers <orchui-maint@intel.com>")
 
-# Security config for Go Builds - see:
-#   https://readthedocs.intel.com/SecureCodingStandards/latest/compiler/golang/
-# -trimpath: Remove all file system paths from the resulting executable.
-# -gcflags="all=-m": Print optimizations applied by the compiler for review and verification against security requirements.
-# -gcflags="all=-spectre=all" Enable all available Spectre mitigations
-# -ldflags="all=-s -w" remove the symbol and debug info
-# -ldflags="all=-X ..." Embed binary build stamping information
-ifeq ($(GOARCH),arm64)
-	# Note that arm64 (Apple, similar) does not support any spectre mititations.
-  COMMON_GOEXTRAFLAGS := -trimpath -gcflags="all=-spectre= -N -l" -asmflags="all=-spectre=" -ldflags="all=-s -w -X 'main.RepoURL=$(LABEL_REPO_URL)' -X 'main.Version=$(LABEL_VERSION)' -X 'main.Revision=$(LABEL_REVISION)' -X 'main.BuildDate=$(LABEL_BUILD_DATE)'"
-else
-  COMMON_GOEXTRAFLAGS := -trimpath -gcflags="all=-spectre=all -N -l" -asmflags="all=-spectre=all" -ldflags="all=-s -w -X 'main.RepoURL=$(LABEL_REPO_URL)' -X 'main.Version=$(LABEL_VERSION)' -X 'main.Revision=$(LABEL_REVISION)' -X 'main.BuildDate=$(LABEL_BUILD_DATE)'"
-endif
+DOCKER_LABEL_ARGS         ?= \
+	--label org.opencontainers.image.source="${DOCKER_LABEL_VCS_URL}" \
+	--label org.opencontainers.image.version="${VERSION}" \
+	--label org.opencontainers.image.revision="${DOCKER_LABEL_VCS_REF}" \
+	--label org.opencontainers.image.created="${DOCKER_LABEL_BUILD_DATE}" \
+	--label org.opencontainers.image.description="${LABEL_DESCRIPTION}" \
+	--label org.opencontainers.image.licenses="${LABEL_LICENSE}" \
+	--label org.opencontainers.image.title="${LABEL_TITLE}" \
+	--label org.opencontainers.image.url="${LABEL_URL}" \
+	--label maintainer="${LABEL_MAINTAINER}"
 
-# Postgres DB configuration and credentials for testing. This mimics the Aurora
-# production environment.
-export PGUSER=admin
-export PGHOST=localhost
-export PGDATABASE=postgres
-export PGPORT=5432
-export PGPASSWORD=pass
-export PGSSLMODE=disable
+# example DOCKER_EXTRA_ARGS="--progress=plain"
+DOCKER_EXTRA_ARGS ?=
 
-# Artifact publishing variables
-BRANCH_NAME := $(shell git rev-parse --abbrev-ref HEAD | sed 's/\//_/g')
-ifeq ($(findstring -dev,$(VERSION)), -dev)
-  TAG := $(VERSION)-$(GIT_COMMIT),latest-$(BRANCH_NAME)-dev,v$(VERSION)-$(GIT_COMMIT)
-else
-  TAG := $(VERSION),latest-$(BRANCH_NAME),v$(VERSION)
-endif
+DOCKER_BUILD_ARGS ?= \
+	${DOCKER_EXTRA_ARGS} \
+	${DOCKER_LABEL_ARGS}
 
-#### Path Target ####
+# Public targets
+all: help
 
-$(OUT_DIR): ## Create out directory
-	mkdir -p $(OUT_DIR)
+../../node_modules: ## @HELP Install the node modules
+	npm ci
 
-#### Docker Targets ####
+build: ../../node_modules ## @HELP Builds the react application using webpack
+	NODE_ENV=production npm run app:$(PROJECT_NAME):build
 
-common-docker-build: ## Build Docker image
-	$(GOCMD) mod vendor
-	cp ../common.mk ../version.mk .
-	docker build . -f Dockerfile \
-		-t $(DOCKER_IMG_NAME):$(DOCKER_VERSION) \
-		--build-arg http_proxy="$(http_proxy)" --build-arg HTTP_PROXY="$(HTTP_PROXY)" \
-		--build-arg https_proxy="$(https_proxy)" --build-arg HTTPS_PROXY="$(HTTPS_PROXY)" \
-		--build-arg no_proxy="$(no_proxy)" --build-arg NO_PROXY="$(NO_PROXY)" \
-		--build-arg REPO_URL="$(LABEL_REPO_URL)" \
-		--build-arg VERSION="$(LABEL_VERSION)" \
-		--build-arg REVISION="$(LABEL_REVISION)" \
-		--build-arg BUILD_DATE="$(LABEL_BUILD_DATE)"
-	@rm -rf vendor common.mk version.mk
+docker-build: build ## @HELP Build the docker image
+	cp -r ../../library/nginxCommon .
+	echo "$(VERSION)"
 
-common-docker-push: ## Tag and push Docker image
-	# TODO: remove ecr create
-	aws ecr create-repository --region us-west-2 --repository-name $(DOCKER_REPOSITORY)/$(DOCKER_IMG_NAME) || true
-	docker tag $(DOCKER_IMG_NAME):$(DOCKER_VERSION) $(DOCKER_TAG_BRANCH)
-	docker tag $(DOCKER_IMG_NAME):$(DOCKER_VERSION) $(DOCKER_TAG)
-	docker push $(DOCKER_TAG)
-ifeq ($(DOCKER_TAG_BRANCH_PUSH), true)
-	docker push $(DOCKER_TAG_BRANCH)
-endif
+	docker build $(DOCKER_BUILD_ARGS) --platform=linux/x86_64 ${DOCKER_EXTRA_ARGS} \
+		-t $(DOCKER_TAG) \
+		-f ${DOCKER_FILE} ${DOCKER_CONTEXT}
 
 docker-list: ## Print name of docker container image
-	@echo $(DOCKER_TAG)
+	@echo "  $(DOCKER_IMG_NAME):"
+	@echo "    name: '$(DOCKER_TAG)'"
+	@echo "    version: '$(VERSION)'"
+	@echo "    gitTagPrefix: 'apps/$(PROJECT_NAME)/'"
+	@echo "    buildTarget: '$(PROJECT_NAME)-docker-build'"
 
-#### Python venv Target ####
+docker-push: ## @HELP Push the docker image to a registry
+	aws ecr create-repository --region us-west-2 --repository-name edge-orch/$(DOCKER_REPOSITORY)/$(DOCKER_IMG_NAME) || true
+	docker push $(DOCKER_TAG)
+	# NOTE do we need to push with the branch name?
+	# If we need we should modify CI so that we can run the docker push twice with different env vars
+	# docker tag $(DOCKER_TAG) $(DOCKER_TAG_BRANCH)
+	# docker push $(DOCKER_TAG_BRANCH)
 
-VENV_NAME	:= venv_$(PROJECT_NAME)
+KIND_CLUSTER_NAME="kind"
+docker-kind-load: ## @HELP Loads the docker image on a kind cluster
+	kind load docker-image ${DOCKER_REGISTRY}${DOCKER_REPOSITORY}:${DOCKER_TAG} --name=${KIND_CLUSTER_NAME}
 
-$(VENV_NAME): requirements.txt ## Create Python venv
-	python3 -m venv $@ ;\
-  set +u; . ./$@/bin/activate; set -u ;\
-  python -m pip install --upgrade pip ;\
-  python -m pip install -r requirements.txt
+helm-lint: ## @HELP Lint helm charts.
+	for d in $(HELM_DIRS); do \
+		helm dep update $$d ; \
+		helm lint $$d ; \
+	done
 
-#### Maintenance Targets ####
+helm-clean: helm-reset-annotations ## @HELP Clean helm chart build annotations.
+	rm $(HELM_CHART_NAME)-*.tgz || true
 
-go-tidy: ## Run go mod tidy
-	$(GOCMD) mod tidy
+helm-build: helm-clean helm-annotate ## @HELP Package helm charts.
+	helm dep update ${HELM_CHART_PATH}
+	helm package --app-version=${VERSION} --version=${VERSION} --debug -u ${HELM_CHART_PATH}
 
-go-lint-fix: ## Apply automated lint/formatting fixes to go files
-	golangci-lint run --fix --config .golangci.yml
+helm_version = $(shell helm show chart ${HELM_CHART_PATH} | yq e '.appVersion' -)
+helm-version-check: ## @HELP validates that the version is the same in the package.json and in the helm-chart
+	@echo "Verify VERSION (${VERSION}) matches Helm Chart App Version (${helm_version})"
+	@bash -c "diff -u <(echo ${VERSION}) <(echo ${helm_version})"
 
-#### Test Targets ####
+helm-annotate: ## @HELP Apply build context to chart annotations and appVersion
+	yq eval -i '.annotations.revision = "${DOCKER_LABEL_VCS_REF}"' ${HELM_CHART_PATH}Chart.yaml
+	yq eval -i '.annotations.created = "${DOCKER_LABEL_BUILD_DATE}"' ${HELM_CHART_PATH}Chart.yaml
+	yq eval -i '.appVersion = "${VERSION}"' ${HELM_CHART_PATH}Chart.yaml
 
-# https://github.com/koalaman/shellcheck
-SH_FILES := $(shell find . -type f \( -name '*.sh' \) -print )
-shellcheck: ## lint shell scripts with shellcheck
-	shellcheck --version
-	shellcheck -x -S style $(SH_FILES)
+helm-reset-annotations: ## @HELP Clear build context annotations and appVersion
+	yq eval -i 'del(.annotations.revision)' ${HELM_CHART_PATH}Chart.yaml
+	yq eval -i 'del(.annotations.created)' ${HELM_CHART_PATH}Chart.yaml
+	yq eval -i '.appVersion = "${VERSION}"' ${HELM_CHART_PATH}Chart.yaml
 
-# https://pypi.org/project/reuse/
-license: $(VENV_NAME) ## Check licensing with the reuse tool
-	set +u; . ./$</bin/activate; set -u ;\
-  reuse --version ;\
-  reuse --root . lint
+apply-version: helm-clean ## @HELP apply version from the top level package.json to all sub-projectsare the same across the different projects
+	@echo "Setting chart version to ${VERSION}"
+	yq eval -i '.version = "${VERSION}"' ./deploy/Chart.yaml ;
+	yq eval -i '.appVersion = "${VERSION}"' ./deploy/Chart.yaml ;
 
-hadolint: ## Check Dockerfile with Hadolint
-	hadolint Dockerfile
+helm-push: ## @HELP Push helm charts.
+	aws ecr create-repository --region us-west-2 --repository-name edge-orch/$(DOCKER_REPOSITORY)/$(HELM_CHART_PREFIX)/$(HELM_CHART_NAME) || true
+	helm push ${HELM_CHART_NAME}-${VERSION}.tgz oci://$(DOCKER_REGISTRY)/$(DOCKER_REPOSITORY)/$(HELM_CHART_PREFIX)
 
-checksec: go-build ## Check various security properties that are available for executable,like RELRO, STACK CANARY, NX,PIE etc
-	$(GOCMD) version -m $(OUT_DIR)/$(BINARY_NAME)
-	checksec --output=json --file=$(OUT_DIR)/$(BINARY_NAME)
-	checksec --fortify-file=$(OUT_DIR)/$(BINARY_NAME)
+lint: ../../node_modules ## @HELP Lint the code
+	npm run app:$(PROJECT_NAME):lint
 
-yamllint: $(VENV_NAME) ## Lint YAML files
-	. ./$</bin/activate; set -u ;\
-  yamllint --version ;\
-  yamllint -d '{extends: default, rules: {line-length: {max: $(YAML_LINE_LENGHT)}}, ignore: [$(YAML_IGNORE)]}' -s $(YAML_FILES)
+test: ## @HELP Run the tests
+	npm run app:$(PROJECT_NAME):cy:component
 
-mdlint: ## Link MD files
-	markdownlint --version ;\
-	markdownlint "**/*.md" -c ../.markdownlint.yml
+check-valid-api: ## @HELP Check if the API versions are valid
+	bash ./tools/api-versions.sh validate
 
-go-lint: $(OUT_DIR) ## Run go lint
-	golangci-lint --version
-	golangci-lint run $(LINT_DIRS) --config .golangci.yml
-
-go-test: $(OUT_DIR) $(GO_TEST_DEPS) ## Run go test and calculate code coverage
-ifeq ($(TEST_USE_DB), true)
-	$(MAKE) db-stop
-	$(MAKE) db-start
-endif
-	$(GOCMD) test -count=1 -race -v -p 1 \
-	-coverpkg=$(TEST_PKG) -run $(TEST_TARGET) \
-	-coverprofile=$(OUT_DIR)/coverage.out \
-	-covermode $(TEST_COVER) $(if $(TEST_ARGS),-args $(TEST_ARGS)) \
-	| tee >(go-junit-report -set-exit-code > $(OUT_DIR)/report.xml)
-	gocover-cobertura $(if $(TEST_IGNORE_FILES),-ignore-files $(TEST_IGNORE_FILES)) < $(OUT_DIR)/coverage.out > $(OUT_DIR)/coverage.xml
-	$(GOCMD) tool cover -html=$(OUT_DIR)/coverage.out -o $(OUT_DIR)/coverage.html
-	$(GOCMD) tool cover -func=$(OUT_DIR)/coverage.out -o $(OUT_DIR)/function_coverage.log
-ifeq ($(TEST_USE_DB), true)
-	$(MAKE) db-stop
-endif
-
-#### Postgress DB Targets ####
-
-common-db-start: ## Start the local postgres database. See: db-stop
-	if [ -z "`docker ps -aq -f name=^$(DB_CONTAINER_NAME)`" ]; then \
-		echo POSTGRES_PASSWORD=$$PGPASSWORD -e POSTGRES_DB=$$PGDATABASE -e POSTGRES_USER=$$PGUSER -d postgres:$(POSTGRES_VERSION); \
-		docker run --name $(DB_CONTAINER_NAME) --rm $(DOCKER_NETWORKING_FLAGS) -e POSTGRES_PASSWORD=$$PGPASSWORD -e POSTGRES_DB=$$PGDATABASE -e POSTGRES_USER=$$PGUSER -d postgres:$(POSTGRES_VERSION); \
-	fi
-
-common-db-stop: ## Stop the local postgres database. See: db-start
-	@if [ -n "`docker ps -aq -f name=^$(DB_CONTAINER_NAME)`" ]; then \
-		docker container kill $(DB_CONTAINER_NAME); \
-	fi
-
-common-db-shell: ## Run the postgres shell connected to a local database. See: db-start
-	docker run -it --network=host -e PGPASSWORD=$(PGPASSWORD) --name inv-shell --rm postgres:$(POSTGRES_VERSION) psql -h $$PGHOST -U $$PGUSER -d $$PGDATABASE
-
-#### Buf protobuf code generation tooling ###
-
-common-buf-update: $(VENV_NAME) ## Update buf modules
-	set +u; . ./$</bin/activate; set -u ;\
-  buf --version ;\
-  pushd api; buf dep update; popd ;\
-  buf build
-
-common-buf-lint: $(VENV_NAME) ## Lint and format protobuf files
-	buf --version
-	buf format -d --exit-code
-	buf lint
-
-#### Clean Targets ###
-
-clean: ## Delete build and vendor directories
-	rm -rf $(OUT_DIR) vendor $(DIR_TO_CLEAN)
-
-clean-venv: ## Delete Python venv
-	rm -rf "$(VENV_NAME)"
-
-clean-all: clean clean-venv ## Delete all built artifacts and downloaded tools
-
-#### Help Target ####
-
-help: ## Print help for each target
-	@echo $(PROJECT_NAME) make targets
-	@echo "Target               Makefile:Line    Description"
-	@echo "-------------------- ---------------- -----------------------------------------"
-	@grep -H -n '^[[:alnum:]_-]*:.* ##' $(MAKEFILE_LIST) \
-    | sort -t ":" -k 3 \
-    | awk 'BEGIN  {FS=":"}; {sub(".* ## ", "", $$4)}; {printf "%-20s %-16s %s\n", $$3, $$1 ":" $$2, $$4};'
+help: # @HELP Print the command options
+	@echo
+	@printf "\033[0;31m    $(PROJECT_NAME) UI     \033[0m"
+	@echo
+	@grep -E '^.*: .* *# *@HELP' $(MAKEFILE_LIST) \
+		| sort \
+		| awk ' \
+			BEGIN {FS = ": .* *# *@HELP"}; \
+			{printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}; \
+		'

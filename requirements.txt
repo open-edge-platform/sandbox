@@ -1,12 +1,6 @@
-# SPDX-FileCopyrightText: (C) 2025 Intel Corporation
+# SPDX-FileCopyrightText: (C) 2022 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-# protobuf
-betterproto[compiler]~=1.2.5
-protoc_gen_validate~=0.4.2
-
-# lint yaml
-yamllint~=1.35.1
-
-# license check
-reuse~=5.0.2
+# license checking
+python-debian==0.1.44
+reuse~=1.0.0

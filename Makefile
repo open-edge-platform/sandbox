@@ -1,84 +1,77 @@
 # SPDX-FileCopyrightText: (C) 2025 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
+SHELL         := bash -eu -o pipefail
 
-SUBPROJECTS := api apiv2 bulk-import-tools tenant-controller exporters-inventory inventory
+.PHONY: license
 
-.DEFAULT_GOAL := help
-.PHONY: all build clean clean-all help lint test
+default: help
 
-SHELL	:= bash -eu -o pipefail
-
-# Repo root directory, where base makefiles are located
-REPO_ROOT := $(dir $(realpath $(lastword $(MAKEFILE_LIST))))
-
-#### Python venv Target ####
-VENV_DIR := venv_core
-
-$(VENV_DIR): requirements.txt ## Create Python venv
+# Create the virtualenv with python tools installed
+VENV_NAME = venv
+$(VENV_NAME): requirements.txt
+	echo "Creating virtualenv in $@"
 	python3 -m venv $@ ;\
-  set +u; . ./$@/bin/activate; set -u ;\
-  python -m pip install --upgrade pip ;\
-  python -m pip install -r requirements.txt
+	  . ./$@/bin/activate ; set -u ;\
+	  python3 -m pip install --upgrade pip;\
+	  python3 -m pip install -r requirements.txt
+	echo "To enter virtualenv, run 'source $@/bin/activate'"
 
-#### common targets ####
-all: lint build test ## run lint, build, test for all subprojects
+license: $(VENV_NAME) ## Check licensing with the reuse tool
+	. ./$</bin/activate ; set -u ;\
+	reuse --version ;\
+	reuse --root . lint
 
-dependency-check: $(VENV_DIR)
+PROJECTS :=  admin app-orch cluster-orch infra root
 
-lint: $(VENV_DIR) mdlint license ## lint common and all subprojects
-	for dir in $(SUBPROJECTS); do $(MAKE) -C $$dir lint; done
-
-MD_FILES := $(shell find . -type f \( -name '*.md' \) -print )
-mdlint: ## lint all markdown README.md files
-	markdownlint --version
-	markdownlint *.md
-
-license: $(VENV_DIR) ## Check licensing with the reuse tool
-	set +u; . ./$</bin/activate; set -u ;\
-  reuse --version ;\
-  reuse --root . lint
-
-build: ## build in all subprojects
-	for dir in $(SUBPROJECTS); do $(MAKE) -C $$dir build; done
-
-DOCKER_PROJECTS := api exporters-inventory inventory tenant-controller
 docker-build: ## build all docker containers
-	for dir in $(DOCKER_PROJECTS); do $(MAKE) -C $$dir $@; done
+	for dir in $(PROJECTS); do $(MAKE) -C apps/$$dir $@; done
 
 docker-push: ## push all docker containers
-	for dir in $(DOCKER_PROJECTS); do $(MAKE) -C $$dir $@; done
+	for dir in $(PROJECTS); do $(MAKE) -C apps/$$dir $@; done
 
 docker-list: ## list all docker containers
-	@for dir in $(DOCKER_PROJECTS); do $(MAKE) -C $$dir $@; done
+	@echo "images:"
+	@for dir in $(PROJECTS); do $(MAKE) -C apps/$$dir $@; done
 
-test: ## test in all subprojects
-	for dir in $(SUBPROJECTS); do $(MAKE) -C $$dir test; done
+CHARTS = apps/admin/deploy apps/app-orch/deploy apps/cluster-orch/deploy apps/infra/deploy apps/root/deploy
 
-clean: ## clean in all subprojects
-	for dir in $(SUBPROJECTS); do $(MAKE) -C $$dir clean; done
+helm-build: ## build all helm charts
+	for dir in $(PROJECTS); do $(MAKE) -C apps/$$dir $@; done
 
-clean-all: ## clean-all in all subprojects
-	for dir in $(SUBPROJECTS); do $(MAKE) -C $$dir clean-all; done
-	rm -rf $(VENV_DIR)
+helm-push: ## push all helm charts
+	for dir in $(PROJECTS); do $(MAKE) -C apps/$$dir $@; done
 
-api-%: ## Run api subproject's tasks, e.g. api-test
-	$(MAKE) -C api $*
+helm-clean: ## clean all helm charts
+	for dir in $(PROJECTS); do $(MAKE) -C apps/$$dir $@; done
 
-bit-%: ## Run bulk-import-tools subproject's tasks, e.g. bit-test
-	$(MAKE) -C bulk-import-tools $*
+helm-list: ## List top-level helm charts, tag format, and versions in YAML format
+	@echo "charts:"
+	@for dir in $(PROJECTS); do \
+    version=$$(cat "apps/$${dir}/deploy/Chart.yaml" | yq .version) ;\
+    echo "  orch-ui-$${dir}:" ;\
+    echo "    version: $${version}" ;\
+    echo "    gitTagPrefix: 'apps/$${dir}/'" ;\
+    echo "    outDir: 'apps/$${dir}/'" ;\
+  done
 
-einv-%: ## Run exporters-inventory subproject's tasks, e.g. einv-test
-	$(MAKE) -C exporter-inventory $*
+admin-%: ## Run admin subproject's tasks
+	$(MAKE) -C apps/admin $*
 
-inv-%: ## Run inventory subproject's tasks, e.g. inv-test
-	$(MAKE) -C inventory $*
+app-orch-%: ## Run app-orch subproject's tasks
+	$(MAKE) -C apps/app-orch $*
 
-tc-%: ## Run tenant-controller subproject's tasks, e.g. tc-test
-	$(MAKE) -C tenant-controller $*
+cluster-orch-%: ## Run cluster-orch subproject's tasks
+	$(MAKE) -C apps/cluster-orch $*
+
+infra-%: ## Run infra subproject's tasks
+	$(MAKE) -C apps/infra $*
+
+root-%: ## Run root subproject's tasks
+	$(MAKE) -C apps/root $*
 
 #### Help Target ####
 help: ## print help for each target
-	@echo infra-core make targets
+	@echo orch-ui make targets
 	@echo "Target               Makefile:Line    Description"
 	@echo "-------------------- ---------------- -----------------------------------------"
 	@grep -H -n '^[[:alnum:]%_-]*:.* ##' $(MAKEFILE_LIST) \
