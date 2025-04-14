@@ -28,7 +28,7 @@ jobs:
       run_helm_push: false
       run_version_tag: true
       run_artifact: false
-      run_version_dev: true
+      run_version_dev: false
       prefix_tag_separator: "/"
       project_folder: tests
       orch_ci_repo_ref: main
