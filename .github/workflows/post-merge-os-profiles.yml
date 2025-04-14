@@ -27,4 +27,5 @@ jobs:
       run_version_tag: true
       prefix_tag_separator: "/"
       project_folder: "os-profiles"
+      persist_creds: true
     secrets: inherit
