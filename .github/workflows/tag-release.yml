@@ -5,72 +5,73 @@ on:
       - '*/v*'
 
 jobs:
-  runs-on: ubuntu-latest
-  steps:
-    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      with:
-        # Fetch all history, workaround sporadic issue with missing tags
-        fetch-depth: 0
-        # Fetch tags
-        fetch-tags: true
-        # Checkout the TAG that triggered the workflow to avoid detached HEAD
-        ref: ${{ github.ref_name }}
-    - run: |
-        echo "Release triggered by tag: ${{ github.ref }}"
-        echo "Release version:          ${{ github.ref_name }}"
-        echo "Release commit:           ${{ github.sha }}"
-        echo "Release author:           ${{ github.actor }}"
-        echo "Release repository:       ${{ github.repository }}"
-        echo "Release workflow:         ${{ github.workflow }}"
-        echo "Release event:            ${{ github.event_name }}"
-    - run: |
-        component=$(echo "${{ github.ref_name }}" | sed 's/\// /g' | awk '{print $1}')
-        version=$(echo "${{ github.ref_name }}" | sed 's/\// /g' | awk '{print $2}')
-        echo "Component: $component"
-        echo "Version: $version"
-    - name: Process PRs for Component
-      run: |
-        component=$(echo "${{ github.ref_name }}" | sed 's/\// /g' | awk '{print $1}')
-        last_tag=$(git tag --list "$component/*" --sort=-v:refname | head -n 1)
-        echo "Last tag: $last_tag"
+  post-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # Fetch all history, workaround sporadic issue with missing tags
+          fetch-depth: 0
+          # Fetch tags
+          fetch-tags: true
+          # Checkout the TAG that triggered the workflow to avoid detached HEAD
+          ref: ${{ github.ref_name }}
+      - run: |
+          echo "Release triggered by tag: ${{ github.ref }}"
+          echo "Release version:          ${{ github.ref_name }}"
+          echo "Release commit:           ${{ github.sha }}"
+          echo "Release author:           ${{ github.actor }}"
+          echo "Release repository:       ${{ github.repository }}"
+          echo "Release workflow:         ${{ github.workflow }}"
+          echo "Release event:            ${{ github.event_name }}"
+      - run: |
+          component=$(echo "${{ github.ref_name }}" | sed 's/\// /g' | awk '{print $1}')
+          version=$(echo "${{ github.ref_name }}" | sed 's/\// /g' | awk '{print $2}')
+          echo "Component: $component"
+          echo "Version: $version"
+      - name: Process PRs for Component
+        run: |
+          component=$(echo "${{ github.ref_name }}" | sed 's/\// /g' | awk '{print $1}')
+          last_tag=$(git tag --list "$component/*" --sort=-v:refname | head -n 1)
+          echo "Last tag: $last_tag"
+  
+          # Get commits between the current tag and the last tag
+          commits=$(git log $last_tag..${{ github.ref_name }} --pretty=format:"%H")
+          echo "Commits between $last_tag and ${{ github.ref_name }}: $commits"
+  
+          # Iterate through commits and fetch associated PRs
+          for commit in $commits; do
+            pr_url=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/${{ github.repository }}/commits/$commit/pulls" | \
+              jq -r '.[0].html_url')
+  
+            if [ "$pr_url" != "null" ]; then
+              # Fetch PR details
+              labels=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+                "$pr_url" | jq -r '.labels[].name')
+  
+              # Check if any label matches the component
+              for label in $labels; do
+                if [ "$label" == "$component" ]; then
+                  echo "PR matching component $component: $pr_url"
+                  echo "- $pr_url" >> pr_links.txt
+                fi
+              done
+            fi
+          done
+          cat pr_links.txt
+  
 
-        # Get commits between the current tag and the last tag
-        commits=$(git log $last_tag..${{ github.ref_name }} --pretty=format:"%H")
-        echo "Commits between $last_tag and ${{ github.ref_name }}: $commits"
-
-        # Iterate through commits and fetch associated PRs
-        for commit in $commits; do
-          pr_url=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/commits/$commit/pulls" | \
-            jq -r '.[0].html_url')
-
-          if [ "$pr_url" != "null" ]; then
-            # Fetch PR details
-            labels=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-              "$pr_url" | jq -r '.labels[].name')
-
-            # Check if any label matches the component
-            for label in $labels; do
-              if [ "$label" == "$component" ]; then
-                echo "PR matching component $component: $pr_url"
-                echo "- $pr_url" >> pr_links.txt
-              fi
-            done
-          fi
-        done
-        cat pr_links.txt
-
-
-#    - name: Create GitHub Release via REST API
-#      run: |
-#        curl -X POST \
-#          -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-#          -H "Content-Type: application/json" \
-#          -d '{
-#                "tag_name": "${{ github.ref_name }}",
-#                "name": "Release ${{ github.ref_name }}",
-#                "body": "This release is automatically generated.",
-#                "draft": true,
-#                "prerelease": false
-#              }' \
-#          https://api.github.com/repos/${{ github.repository }}/releases
+  #    - name: Create GitHub Release via REST API
+  #      run: |
+  #        curl -X POST \
+  #          -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+  #          -H "Content-Type: application/json" \
+  #          -d '{
+  #                "tag_name": "${{ github.ref_name }}",
+  #                "name": "Release ${{ github.ref_name }}",
+  #                "body": "This release is automatically generated.",
+  #                "draft": true,
+  #                "prerelease": false
+  #              }' \
+  #          https://api.github.com/repos/${{ github.repository }}/releases
