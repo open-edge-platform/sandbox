@@ -32,5 +32,5 @@ jobs:
       prefix_tag_separator: "/"
       project_folder: tests
       orch_ci_repo_ref: main
-      persist_creds: true
+      persist_creds: false
     secrets: inherit
