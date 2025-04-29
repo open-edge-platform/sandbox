@@ -1,0 +1,218 @@
+# SPDX-FileCopyrightText: 2025 Intel Corporation
+#
+# SPDX-License-Identifier: Apache-2.0
+
+name: Edge Orchestrator Release
+
+on:
+  # Allow manually triggering the workflow
+  workflow_dispatch:
+    inputs:
+      orchestratorCommit:
+        description: 'Orchestrator commit hash to create the release'
+        type: string
+        required: true
+      releaseTag:
+        description: 'Orchestrator release tag/version'
+        type: string
+        required: true
+      baseBranch:
+        description: 'Base branch for the release'
+        type: string
+        required: true
+
+jobs:
+  verify-actor:
+    name: Check Actor Team Membership
+    runs-on: ubuntu-latest
+    outputs:
+      is-maintain-team: ${{ steps.get-members.outputs.actor-belongs-team }}
+    steps:
+      - id: get-members
+        name: Get Team Members
+        uses: GuillaumeFalourd/github-team-members@v1
+        with:
+          org_slug: open-edge-platform
+          team_slug: edge-manageability-framework-maintain
+          token: ${{ secrets.SYS_ORCH_GITHUB }}
+
+  release-orchestrator:
+    name: Release Edge Orchestrator
+    needs:
+      - verify-actor
+    if: needs.verify-actor.outputs.is-maintain-team == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout edge-manageability-framework repo
+        uses: actions/checkout@v4.2.2
+        with:
+          repository: open-edge-platform/edge-manageability-framework
+          token: ${{ secrets.SYS_ORCH_GITHUB }}
+          ref: ${{ inputs.orchestratorCommit }}
+          path: edge-manageability-framework
+          fetch-depth: 0
+      
+      - name: Update VERSION
+        working-directory: edge-manageability-framework
+        run: |
+          ls -lrt
+          echo "${{ inputs.releaseTag }}" > VERSION
+          echo "v${{ inputs.releaseTag }}" > on-prem-installers/VERSION
+          mage version:setVersion
+
+      - name: Prepare ci tools
+        uses: actions/checkout@v4.2.2
+        with:
+          repository: open-edge-platform/orch-ci
+          token: ${{ secrets.SYS_ORCH_GITHUB }}
+          path: orch-ci
+    
+      - uses: actions/cache@v4.2.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Set up git credentials
+        shell: bash
+        run: |
+          echo "GOPRIVATE=github.com/open-edge-platform" >> $GITHUB_ENV
+          git config --global url."https://${{ secrets.SYS_ORCH_GITHUB }}:x-oauth-basic@github.com/".insteadOf "https://github.com/"
+
+      - name: Setup asdf and install dependencies
+        uses: open-edge-platform/orch-utils/.github/actions/setup-asdf@main
+
+      - name: Run lint
+        working-directory: edge-manageability-framework
+        run: |
+          orch-ci/scripts/version-check.sh
+          mage version:checkVersion
+
+      - name: Get version tag
+        id: get_version_tag
+        run: |
+          output=$(mage version:getVersionTag)
+          echo "versionTag=$output" >> $GITHUB_ENV
+
+      - name: Build DEB packages
+        working-directory: edge-manageability-framework/on-prem-installers
+        run: mage build:all
+
+      - name: Set DEB_VERSION
+        id: set-version
+        working-directory: edge-manageability-framework/on-prem-installers
+        run: echo "DEB_VERSION=$(mage build:debVersion)" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4.1.0
+        with:
+          aws-access-key-id: ${{ secrets.NO_AUTH_ECR_PUSH_USERNAME }}
+          aws-secret-access-key: ${{ secrets.NO_AUTH_ECR_PUSH_PASSWD }}
+          aws-region: us-west-2
+
+      - name: Login to ECR
+        run: aws ecr get-login-password --region us-west-2 | oras login -u AWS --password-stdin 080137407410.dkr.ecr.us-west-2.amazonaws.com
+
+    #   - name: Publish on-prem installer artifacts
+    #     env:
+    #       BRANCH_NAME: ${{ inputs.baseBranch }}
+    #     working-directory: edge-manageability-framework/on-prem-installers
+    #     run: mage publish:all
+
+    #   - name: Publish Orchestrator source code artifacts
+    #     env:
+    #       BRANCH_NAME: ${{ inputs.baseBranch }}
+    #     working-directory: edge-manageability-framework
+    #     run: mage publish:sourceTarballs
+
+      - name: Login to ECR
+        uses: docker/login-action@v3.3.0
+        with:
+          registry: 080137407410.dkr.ecr.us-west-2.amazonaws.com
+
+      - name: Build Cloud Installer and release bundle artifacts
+        env:
+          BRANCH_NAME: ${{ inputs.baseBranch }}
+        working-directory: edge-manageability-framework
+        run: |
+          mage installer:build
+          mage installer:bundle
+
+    #   - name: Publish Cloud Installer artifact
+    #     env:
+    #         BRANCH_NAME: ${{ inputs.baseBranch }}
+    #     working-directory: edge-manageability-framework
+    #     run: mage publish:cloudInstaller
+    
+    #   - name: Scan Cloud Installer Image
+    #     uses: aquasecurity/trivy-action@6c175e9c4083a92bbca2f9724c8a5e33bc2d97a5  # v0.30.0
+    #     with:
+    #       image-ref: 080137407410.dkr.ecr.us-west-2.amazonaws.com/edge-orch/common/orchestrator-installer-cloudfull:${{ env.versionTag }}
+    #       format: table
+    #       output: "trivy-orchestrator-installer-cloudfull.txt"
+    #       ignore-unfixed: true
+
+    #   - name: Calculate MD5 Checksum
+    #     id: checksum
+    #     run: |
+    #       md5sum_value=$(md5sum "trivy-orchestrator-installer-cloudfull.txt" | cut -d " " -f 1)
+    #       echo "md5sum is $md5sum_value"
+    #       echo "md5sum_value=$md5sum_value" >> "$GITHUB_ENV"
+
+    #   - name: Upload Trivy Image Scan Report
+    #     uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+    #     with:
+    #       name: trivy-scan-report-orchestrator-installer-cloudfull-${{ env.md5sum_value }}
+    #       path: trivy-orchestrator-installer-cloudfull.txt
+
+      - name: Build release manifest artifact
+        env:
+            BRANCH_NAME: ${{ inputs.baseBranch }}
+        working-directory: edge-manageability-framework
+        run: |
+          mkdir -p release-manifest
+          mage -v gen:releaseManifest release-manifest/chart-manifest.yaml
+          mage -v gen:releaseImageManifest release-manifest/image-manifest.yaml
+
+    #   - name: Publish release manifest artifact
+    #     env:
+    #         BRANCH_NAME: ${{ inputs.baseBranch }}
+    #     working-directory: edge-manageability-framework
+    #     run: |
+    #       mage publish:releaseManifest
+
+  create-release-tag:
+    name: Create Release Tag
+    needs:
+      - verify-actor
+      - release-orchestrator
+    if: needs.verify-actor.outputs.is-maintain-team == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout edge-manageability-framework repo
+        uses: actions/checkout@v4.2.2
+        with:
+          repository: open-edge-platform/edge-manageability-framework
+          token: ${{ secrets.SYS_ORCH_GITHUB }}
+          ref: ${{ inputs.orchestratorCommit }}
+          path: edge-manageability-framework
+          fetch-depth: 0
+
+      - name: Prepare ci tools
+        uses: actions/checkout@v4.2.2
+        with:
+          repository: open-edge-platform/orch-ci
+          token: ${{ secrets.SYS_ORCH_GITHUB }}
+          path: orch-ci
+
+    #   - name: Tag repo
+    #     env:
+    #       GITHUB_TOKEN: ${{ secrets.SYS_ORCH_GITHUB }}
+    #     working-directory: edge-manageability-framework
+    #     run: |
+    #         orch-ci/scripts/version-tag.sh
