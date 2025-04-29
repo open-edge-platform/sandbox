@@ -69,11 +69,13 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+            key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+            working-directory: edge-manageability-framework
           restore-keys: |
             ${{ runner.os }}-go-
 
       - name: Set up git credentials
+        working-directory: edge-manageability-framework
         shell: bash
         run: |
           echo "GOPRIVATE=github.com/open-edge-platform" >> $GITHUB_ENV
@@ -81,11 +83,11 @@ jobs:
 
       - name: Setup asdf and install dependencies
         uses: open-edge-platform/orch-utils/.github/actions/setup-asdf@main
+        working-directory: edge-manageability-framework
       
       - name: Update VERSION
         working-directory: edge-manageability-framework
         run: |
-          ls -lrt
           echo "${{ inputs.releaseTag }}" > VERSION
           echo "v${{ inputs.releaseTag }}" > on-prem-installers/VERSION
           mage version:setVersion
@@ -98,6 +100,7 @@ jobs:
 
       - name: Get version tag
         id: get_version_tag
+        working-directory: edge-manageability-framework
         run: |
           output=$(mage version:getVersionTag)
           echo "versionTag=$output" >> $GITHUB_ENV
