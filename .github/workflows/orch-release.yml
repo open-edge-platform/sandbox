@@ -7,7 +7,7 @@ name: Edge Orchestrator Release
 on:
   pull_request:
     types: [opened, reopened, synchronize]
-    
+
   # Allow manually triggering the workflow
   workflow_dispatch:
     inputs:
@@ -43,7 +43,11 @@ jobs:
     name: Release Edge Orchestrator
     needs:
       - verify-actor
-    if: needs.verify-actor.outputs.is-maintain-team == 'true'
+    if: |
+      needs.verify-actor.outputs.is-maintain-team == 'true' &&
+      inputs.orchestratorCommit != '' &&
+      inputs.releaseTag != '' &&
+      inputs.baseBranch != ''
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -193,7 +197,11 @@ jobs:
     needs:
       - verify-actor
       - release-orchestrator
-    if: needs.verify-actor.outputs.is-maintain-team == 'true'
+    if: |
+      needs.verify-actor.outputs.is-maintain-team == 'true' &&
+      inputs.orchestratorCommit != '' &&
+      inputs.releaseTag != '' &&
+      inputs.baseBranch != ''
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
