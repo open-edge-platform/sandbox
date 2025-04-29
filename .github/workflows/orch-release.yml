@@ -69,8 +69,7 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-            key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-            working-directory: edge-manageability-framework
+            key: ${{ runner.os }}-go-${{ hashFiles('edge-manageability-framework/**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
 
