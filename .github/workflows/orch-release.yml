@@ -5,6 +5,9 @@
 name: Edge Orchestrator Release
 
 on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    
   # Allow manually triggering the workflow
   workflow_dispatch:
     inputs:
