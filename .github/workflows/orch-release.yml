@@ -59,14 +59,6 @@ jobs:
           ref: ${{ inputs.orchestratorCommit }}
           path: edge-manageability-framework
           fetch-depth: 0
-      
-      - name: Update VERSION
-        working-directory: edge-manageability-framework
-        run: |
-          ls -lrt
-          echo "${{ inputs.releaseTag }}" > VERSION
-          echo "v${{ inputs.releaseTag }}" > on-prem-installers/VERSION
-          mage version:setVersion
 
       - name: Prepare ci tools
         uses: actions/checkout@v4.2.2
@@ -92,6 +84,14 @@ jobs:
 
       - name: Setup asdf and install dependencies
         uses: open-edge-platform/orch-utils/.github/actions/setup-asdf@main
+      
+      - name: Update VERSION
+        working-directory: edge-manageability-framework
+        run: |
+          ls -lrt
+          echo "${{ inputs.releaseTag }}" > VERSION
+          echo "v${{ inputs.releaseTag }}" > on-prem-installers/VERSION
+          mage version:setVersion
 
       - name: Run lint
         working-directory: edge-manageability-framework
