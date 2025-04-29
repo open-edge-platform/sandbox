@@ -83,7 +83,6 @@ jobs:
 
       - name: Setup asdf and install dependencies
         uses: open-edge-platform/orch-utils/.github/actions/setup-asdf@main
-        working-directory: edge-manageability-framework
       
       - name: Update VERSION
         working-directory: edge-manageability-framework
