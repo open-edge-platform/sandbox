@@ -91,7 +91,9 @@ jobs:
 
       - name: Reshim installed ASDF tools
         shell: bash
-        run: asdf reshim
+        run: |
+          ls -lrt
+          asdf reshim
 
       - name: Install dependencies
         working-directory: edge-manageability-framework
@@ -113,7 +115,7 @@ jobs:
       - name: Run lint
         working-directory: edge-manageability-framework
         run: |
-          orch-ci/scripts/version-check.sh
+          ~/orch-ci/scripts/version-check.sh
           mage version:checkVersion
 
       - name: Get version tag
@@ -244,4 +246,4 @@ jobs:
     #       GITHUB_TOKEN: ${{ secrets.SYS_ORCH_GITHUB }}
     #     working-directory: edge-manageability-framework
     #     run: |
-    #         orch-ci/scripts/version-tag.sh
+    #         ~/orch-ci/scripts/version-tag.sh
