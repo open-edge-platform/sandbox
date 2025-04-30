@@ -64,14 +64,14 @@ jobs:
           token: ${{ secrets.SYS_ORCH_GITHUB }}
           path: orch-ci
     
-      - uses: actions/cache@v4.2.0
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('edge-manageability-framework/**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
+      # - uses: actions/cache@v4.2.0
+      #   with:
+      #     path: |
+      #       ~/.cache/go-build
+      #       ~/go/pkg/mod
+      #     key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+      #     restore-keys: |
+      #       ${{ runner.os }}-go-
 
       - name: Set up git credentials
         working-directory: edge-manageability-framework
@@ -80,8 +80,28 @@ jobs:
           echo "GOPRIVATE=github.com/open-edge-platform" >> $GITHUB_ENV
           git config --global url."https://${{ secrets.SYS_ORCH_GITHUB }}:x-oauth-basic@github.com/".insteadOf "https://github.com/"
 
-      - name: Setup asdf and install dependencies
-        uses: open-edge-platform/orch-utils/.github/actions/setup-asdf@main
+      # - name: Setup asdf and install dependencies
+      #   uses: open-edge-platform/orch-utils/.github/actions/setup-asdf@main
+
+      - name: Install asdf
+        # TODO: Pin to a SemVer release when one is made
+        uses: asdf-vm/actions/setup@9cd779f40fe38688dd19505ccbc4eaaf018b44e7
+        with:
+          asdf_version: 0.16.6
+
+      - name: Reshim installed ASDF tools
+        shell: bash
+        run: asdf reshim
+
+      - name: Install dependencies
+        working-directory: edge-manageability-framework
+        shell: bash
+        run: |
+          for plugin in golang jq mage; do
+            asdf plugin add "${plugin}"
+            asdf install "${plugin}"
+          done
+          mage asdfPlugins
       
       - name: Update VERSION
         working-directory: edge-manageability-framework
