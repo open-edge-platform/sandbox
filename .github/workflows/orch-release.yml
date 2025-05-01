@@ -140,6 +140,7 @@ jobs:
           aws-region: us-west-2
 
       - name: Login to ECR
+        working-directory: edge-manageability-framework
         run: aws ecr get-login-password --region us-west-2 | oras login -u AWS --password-stdin 080137407410.dkr.ecr.us-west-2.amazonaws.com
 
     #   - name: Publish on-prem installer artifacts
