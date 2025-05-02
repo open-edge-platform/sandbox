@@ -46,7 +46,6 @@ jobs:
       inputs.releaseTag != '' &&
       inputs.baseBranch != ''
     runs-on: ubuntu-latest
-    timeout-minutes: 10
     steps:
       - name: Checkout edge-manageability-framework repo
         uses: actions/checkout@v4.2.2
@@ -167,33 +166,33 @@ jobs:
         run: |
           mage installer:build
           mage installer:bundle
+    
+      - name: Scan Cloud Installer Image
+        uses: aquasecurity/trivy-action@6c175e9c4083a92bbca2f9724c8a5e33bc2d97a5  # v0.30.0
+        with:
+          image-ref: 080137407410.dkr.ecr.us-west-2.amazonaws.com/edge-orch/common/orchestrator-installer-cloudfull:${{ env.versionTag }}
+          format: table
+          output: "trivy-orchestrator-installer-cloudfull.txt"
+          ignore-unfixed: true
+
+      - name: Calculate MD5 Checksum
+        id: checksum
+        run: |
+          md5sum_value=$(md5sum "trivy-orchestrator-installer-cloudfull.txt" | cut -d " " -f 1)
+          echo "md5sum is $md5sum_value"
+          echo "md5sum_value=$md5sum_value" >> "$GITHUB_ENV"
+
+      - name: Upload Trivy Image Scan Report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: trivy-scan-report-orchestrator-installer-cloudfull-${{ env.md5sum_value }}
+          path: trivy-orchestrator-installer-cloudfull.txt
 
     #   - name: Publish Cloud Installer artifact
     #     env:
     #         BRANCH_NAME: ${{ inputs.baseBranch }}
     #     working-directory: edge-manageability-framework
     #     run: mage publish:cloudInstaller
-    
-    #   - name: Scan Cloud Installer Image
-    #     uses: aquasecurity/trivy-action@6c175e9c4083a92bbca2f9724c8a5e33bc2d97a5  # v0.30.0
-    #     with:
-    #       image-ref: 080137407410.dkr.ecr.us-west-2.amazonaws.com/edge-orch/common/orchestrator-installer-cloudfull:${{ env.versionTag }}
-    #       format: table
-    #       output: "trivy-orchestrator-installer-cloudfull.txt"
-    #       ignore-unfixed: true
-
-    #   - name: Calculate MD5 Checksum
-    #     id: checksum
-    #     run: |
-    #       md5sum_value=$(md5sum "trivy-orchestrator-installer-cloudfull.txt" | cut -d " " -f 1)
-    #       echo "md5sum is $md5sum_value"
-    #       echo "md5sum_value=$md5sum_value" >> "$GITHUB_ENV"
-
-    #   - name: Upload Trivy Image Scan Report
-    #     uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-    #     with:
-    #       name: trivy-scan-report-orchestrator-installer-cloudfull-${{ env.md5sum_value }}
-    #       path: trivy-orchestrator-installer-cloudfull.txt
 
       - name: Build release manifest artifact
         env:
@@ -211,36 +210,7 @@ jobs:
     #     run: |
     #       mage publish:releaseManifest
 
-  create-release-tag:
-    name: Create Release Tag
-    needs:
-      - verify-actor
-      - release-orchestrator
-    if: |
-      needs.verify-actor.outputs.is-maintain-team == 'true' &&
-      inputs.orchestratorCommit != '' &&
-      inputs.releaseTag != '' &&
-      inputs.baseBranch != ''
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Checkout edge-manageability-framework repo
-        uses: actions/checkout@v4.2.2
-        with:
-          repository: open-edge-platform/edge-manageability-framework
-          token: ${{ secrets.SYS_ORCH_GITHUB }}
-          ref: ${{ inputs.orchestratorCommit }}
-          path: edge-manageability-framework
-          fetch-depth: 0
-
-      - name: Prepare ci tools
-        uses: actions/checkout@v4.2.2
-        with:
-          repository: open-edge-platform/orch-ci
-          token: ${{ secrets.SYS_ORCH_GITHUB }}
-          path: orch-ci
-
-    #   - name: Tag repo
+    #   - name: Create Release Tag
     #     env:
     #       GITHUB_TOKEN: ${{ secrets.SYS_ORCH_GITHUB }}
     #     working-directory: edge-manageability-framework
