@@ -139,16 +139,16 @@ jobs:
       #   run: |
       #       ../orch-ci/scripts/version-tag.sh
 
-      # - name: Get version tag
-      #   id: get_version_tag
-      #   working-directory: edge-manageability-framework
-      #   run: |
-      #     output=$(mage version:getVersionTag)
-      #     echo "versionTag=$output" >> $GITHUB_ENV
+      - name: Get version tag
+        id: get_version_tag
+        working-directory: edge-manageability-framework
+        run: |
+          output=$(mage version:getVersionTag)
+          echo "versionTag=$output" >> $GITHUB_ENV
 
-      # - name: Build DEB packages
-      #   working-directory: edge-manageability-framework/on-prem-installers
-      #   run: mage build:all
+      - name: Build DEB packages
+        working-directory: edge-manageability-framework/on-prem-installers
+        run: mage build:all
 
       # - name: Set DEB_VERSION
       #   id: set-version
@@ -233,5 +233,3 @@ jobs:
       #   working-directory: edge-manageability-framework
       #   run: |
       #     mage publish:releaseManifest
-
-
