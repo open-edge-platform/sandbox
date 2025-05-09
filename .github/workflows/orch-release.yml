@@ -3,17 +3,19 @@
 # SPDX-License-Identifier: Apache-2.0
 
 name: Edge Orchestrator Release
+# This workflow is used to create an internal release of the Edge Orchestrator.
+# It is triggered manually and requires the orchestrator commit, internal release tag, and base branch as inputs.
 
 on:
   # Only allow manually triggering the workflow
   workflow_dispatch:
     inputs:
       orchestratorCommit:
-        description: 'Orchestrator commit to create the release'
+        description: 'Orchestrator ref to create internal release'
         type: string
         required: true
-      releaseTag:
-        description: 'Orchestrator release tag/version'
+      internalReleaseTag:
+        description: 'Orchestrator internal release tag/version'
         type: string
         required: true
       baseBranch:
@@ -22,8 +24,33 @@ on:
         required: true
 
 jobs:
+  # Check if the input tag is a valid internal release version
+  # The version format is X.Y.Z[-rcN][-nYYYYMMDD]
+  verify-tag:
+    name: Verify Internal Release Tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check if input tag is valid
+        shell: bash
+        run: |
+          if [[ "${{ inputs.internalReleaseTag }}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-rc[0-9]+)$ ]] || 
+             [[ "${{ inputs.internalReleaseTag }}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-n[0-9]+)$ ]];
+          then
+            echo "Version string '${{ inputs.internalReleaseTag }}' is a valid internal release version"
+          else
+            echo "Version string '${{ inputs.internalReleaseTag }}' is not a valid internal release version"
+            echo "Valid internal release version format: X.Y.Z[-rcN][-nYYYYMMDD]"
+            echo "To create a public/official release, please submit a PR on edge-manageability-framework repository"
+            echo "Exiting with error code 1"
+            exit 1
+          fi
+
+  # Check if github actor has permissions to make a release. Only members of the maintain team can trigger this workflow.
+  # This is done to prevent unauthorized users from triggering the workflow and making a release.
   verify-actor:
     name: Check Actor Team Membership
+    needs:
+      - verify-tag
     runs-on: ubuntu-latest
     outputs:
       is-maintain-team: ${{ steps.get-members.outputs.actor-belongs-team }}
@@ -38,12 +65,14 @@ jobs:
 
   release-orchestrator:
     name: Release Edge Orchestrator
+    # This job is responsible for creating the internal release of the Edge Orchestrator.
     needs:
+      - verify-tag
       - verify-actor
     if: |
       needs.verify-actor.outputs.is-maintain-team == 'true' &&
       inputs.orchestratorCommit != '' &&
-      inputs.releaseTag != '' &&
+      inputs.internalReleaseTag != '' &&
       inputs.baseBranch != ''
     runs-on: ubuntu-latest
     steps:
@@ -93,114 +122,116 @@ jobs:
       - name: Update VERSION
         working-directory: edge-manageability-framework
         run: |
-          echo "${{ inputs.releaseTag }}" > VERSION
-          echo "v${{ inputs.releaseTag }}" > on-prem-installers/VERSION
+          echo "${{ inputs.internalReleaseTag }}" > VERSION
+          echo "v${{ inputs.internalReleaseTag }}" > on-prem-installers/VERSION
           mage version:setVersion
 
-      - name: Run lint
+      - name: Run Version Check
         working-directory: edge-manageability-framework
         run: |
           ../orch-ci/scripts/version-check.sh
           mage version:checkVersion
+      
+      # - name: Create Git Tag
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.SYS_ORCH_GITHUB }}
+      #   working-directory: edge-manageability-framework
+      #   run: |
+      #       ../orch-ci/scripts/version-tag.sh
 
-      - name: Get version tag
-        id: get_version_tag
-        working-directory: edge-manageability-framework
-        run: |
-          output=$(mage version:getVersionTag)
-          echo "versionTag=$output" >> $GITHUB_ENV
+      # - name: Get version tag
+      #   id: get_version_tag
+      #   working-directory: edge-manageability-framework
+      #   run: |
+      #     output=$(mage version:getVersionTag)
+      #     echo "versionTag=$output" >> $GITHUB_ENV
 
-      - name: Build DEB packages
-        working-directory: edge-manageability-framework/on-prem-installers
-        run: mage build:all
+      # - name: Build DEB packages
+      #   working-directory: edge-manageability-framework/on-prem-installers
+      #   run: mage build:all
 
-      - name: Set DEB_VERSION
-        id: set-version
-        working-directory: edge-manageability-framework/on-prem-installers
-        run: echo "DEB_VERSION=$(mage build:debVersion)" >> "$GITHUB_OUTPUT"
+      # - name: Set DEB_VERSION
+      #   id: set-version
+      #   working-directory: edge-manageability-framework/on-prem-installers
+      #   run: echo "DEB_VERSION=$(mage build:debVersion)" >> "$GITHUB_OUTPUT"
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4.1.0
-        with:
-          aws-access-key-id: ${{ secrets.NO_AUTH_ECR_PUSH_USERNAME }}
-          aws-secret-access-key: ${{ secrets.NO_AUTH_ECR_PUSH_PASSWD }}
-          aws-region: us-west-2
+      # - name: Configure AWS credentials
+      #   uses: aws-actions/configure-aws-credentials@v4.1.0
+      #   with:
+      #     aws-access-key-id: ${{ secrets.NO_AUTH_ECR_PUSH_USERNAME }}
+      #     aws-secret-access-key: ${{ secrets.NO_AUTH_ECR_PUSH_PASSWD }}
+      #     aws-region: us-west-2
 
-      - name: Login to ECR
-        working-directory: edge-manageability-framework
-        run: aws ecr get-login-password --region us-west-2 | oras login -u AWS --password-stdin 080137407410.dkr.ecr.us-west-2.amazonaws.com
+      # - name: Login to ECR
+      #   working-directory: edge-manageability-framework
+      #   run: aws ecr get-login-password --region us-west-2 | oras login -u AWS --password-stdin 080137407410.dkr.ecr.us-west-2.amazonaws.com
 
-      - name: Publish on-prem installer artifacts
-        env:
-          BRANCH_NAME: ${{ inputs.baseBranch }}
-        working-directory: edge-manageability-framework/on-prem-installers
-        run: mage publish:all
+      # - name: Publish on-prem installer artifacts
+      #   env:
+      #     BRANCH_NAME: ${{ inputs.baseBranch }}
+      #   working-directory: edge-manageability-framework/on-prem-installers
+      #   run: mage publish:all
 
-      - name: Publish Orchestrator source code artifacts
-        env:
-          BRANCH_NAME: ${{ inputs.baseBranch }}
-        working-directory: edge-manageability-framework
-        run: mage publish:sourceTarballs
+      # - name: Publish Orchestrator source code artifacts
+      #   env:
+      #     BRANCH_NAME: ${{ inputs.baseBranch }}
+      #   working-directory: edge-manageability-framework
+      #   run: mage publish:sourceTarballs
 
-      - name: Login to ECR
-        uses: docker/login-action@v3.3.0
-        with:
-          registry: 080137407410.dkr.ecr.us-west-2.amazonaws.com
+      # - name: Login to ECR
+      #   uses: docker/login-action@v3.3.0
+      #   with:
+      #     registry: 080137407410.dkr.ecr.us-west-2.amazonaws.com
 
-      - name: Build Cloud Installer and release bundle artifacts
-        env:
-          BRANCH_NAME: ${{ inputs.baseBranch }}
-        working-directory: edge-manageability-framework
-        run: |
-          mage installer:build
-          mage installer:bundle
+      # - name: Build Cloud Installer and release bundle artifacts
+      #   env:
+      #     BRANCH_NAME: ${{ inputs.baseBranch }}
+      #   working-directory: edge-manageability-framework
+      #   run: |
+      #     mage installer:build
+      #     mage installer:bundle
     
-      - name: Scan Cloud Installer Image
-        uses: aquasecurity/trivy-action@6c175e9c4083a92bbca2f9724c8a5e33bc2d97a5  # v0.30.0
-        with:
-          image-ref: 080137407410.dkr.ecr.us-west-2.amazonaws.com/edge-orch/common/orchestrator-installer-cloudfull:${{ env.versionTag }}
-          format: table
-          output: "trivy-orchestrator-installer-cloudfull.txt"
-          ignore-unfixed: true
+      # - name: Scan Cloud Installer Image
+      #   uses: aquasecurity/trivy-action@6c175e9c4083a92bbca2f9724c8a5e33bc2d97a5  # v0.30.0
+      #   with:
+      #     image-ref: 080137407410.dkr.ecr.us-west-2.amazonaws.com/edge-orch/common/orchestrator-installer-cloudfull:${{ env.versionTag }}
+      #     format: table
+      #     output: "trivy-orchestrator-installer-cloudfull.txt"
+      #     ignore-unfixed: true
 
-      - name: Calculate MD5 Checksum
-        id: checksum
-        run: |
-          md5sum_value=$(md5sum "trivy-orchestrator-installer-cloudfull.txt" | cut -d " " -f 1)
-          echo "md5sum is $md5sum_value"
-          echo "md5sum_value=$md5sum_value" >> "$GITHUB_ENV"
+      # - name: Calculate MD5 Checksum
+      #   id: checksum
+      #   run: |
+      #     md5sum_value=$(md5sum "trivy-orchestrator-installer-cloudfull.txt" | cut -d " " -f 1)
+      #     echo "md5sum is $md5sum_value"
+      #     echo "md5sum_value=$md5sum_value" >> "$GITHUB_ENV"
 
-      - name: Upload Trivy Image Scan Report
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        with:
-          name: trivy-scan-report-orchestrator-installer-cloudfull-${{ env.md5sum_value }}
-          path: trivy-orchestrator-installer-cloudfull.txt
+      # - name: Upload Trivy Image Scan Report
+      #   uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      #   with:
+      #     name: trivy-scan-report-orchestrator-installer-cloudfull-${{ env.md5sum_value }}
+      #     path: trivy-orchestrator-installer-cloudfull.txt
 
-      - name: Publish Cloud Installer artifact
-        env:
-            BRANCH_NAME: ${{ inputs.baseBranch }}
-        working-directory: edge-manageability-framework
-        run: mage publish:cloudInstaller
+      # - name: Publish Cloud Installer artifact
+      #   env:
+      #       BRANCH_NAME: ${{ inputs.baseBranch }}
+      #   working-directory: edge-manageability-framework
+      #   run: mage publish:cloudInstaller
 
-      - name: Build release manifest artifact
-        env:
-            BRANCH_NAME: ${{ inputs.baseBranch }}
-        working-directory: edge-manageability-framework
-        run: |
-          mkdir -p release-manifest
-          mage -v gen:releaseManifest release-manifest/chart-manifest.yaml
-          mage -v gen:releaseImageManifest release-manifest/image-manifest.yaml
+      # - name: Build release manifest artifact
+      #   env:
+      #       BRANCH_NAME: ${{ inputs.baseBranch }}
+      #   working-directory: edge-manageability-framework
+      #   run: |
+      #     mkdir -p release-manifest
+      #     mage -v gen:releaseManifest release-manifest/chart-manifest.yaml
+      #     mage -v gen:releaseImageManifest release-manifest/image-manifest.yaml
 
-      - name: Publish release manifest artifact
-        env:
-            BRANCH_NAME: ${{ inputs.baseBranch }}
-        working-directory: edge-manageability-framework
-        run: |
-          mage publish:releaseManifest
+      # - name: Publish release manifest artifact
+      #   env:
+      #       BRANCH_NAME: ${{ inputs.baseBranch }}
+      #   working-directory: edge-manageability-framework
+      #   run: |
+      #     mage publish:releaseManifest
 
-      - name: Create Release Tag
-        env:
-          GITHUB_TOKEN: ${{ secrets.SYS_ORCH_GITHUB }}
-        working-directory: edge-manageability-framework
-        run: |
-            ../orch-ci/scripts/version-tag.sh
+
