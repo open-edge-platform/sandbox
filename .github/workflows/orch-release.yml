@@ -57,8 +57,10 @@ jobs:
     steps:
       - id: get-members
         name: Get Team Members
+        env:
+          GH_TOKEN: ${{ secrets.SYS_ORCH_GITHUB }}
         run: |
-          members=$(gh api orgs/open-edge-platform/teams/edge-manageability-framework-maintain/members --jq '.[].login' -H "Authorization: token ${{ secrets.SYS_ORCH_GITHUB }}")
+          members=$(gh api orgs/open-edge-platform/teams/edge-manageability-framework-maintain/members --jq '.[].login')
           if echo "$members" | grep -q "^${{ github.actor }}$"; then
             echo "actor-belongs-team=true" >> "$GITHUB_OUTPUT"
           else
