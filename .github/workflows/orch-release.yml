@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-name: Edge Orchestrator Release
+name: Edge Orchestrator Internal Release Workflow
 # This workflow is used to create an internal release of the Edge Orchestrator.
 # It is triggered manually and requires the orchestrator commit, internal release tag, and base branch as inputs.
 
@@ -57,11 +57,13 @@ jobs:
     steps:
       - id: get-members
         name: Get Team Members
-        uses: GuillaumeFalourd/github-team-members@v1
-        with:
-          org_slug: open-edge-platform
-          team_slug: edge-manageability-framework-maintain
-          token: ${{ secrets.SYS_ORCH_GITHUB }}
+        run: |
+          members=$(gh api orgs/open-edge-platform/teams/edge-manageability-framework-maintain/members --jq '.[].login' -H "Authorization: token ${{ secrets.SYS_ORCH_GITHUB }}")
+          if echo "$members" | grep -q "^${{ github.actor }}$"; then
+            echo "actor-belongs-team=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "actor-belongs-team=false" >> "$GITHUB_OUTPUT"
+          fi
 
   release-orchestrator:
     name: Release Edge Orchestrator
@@ -77,27 +79,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout edge-manageability-framework repo
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           repository: open-edge-platform/edge-manageability-framework
-          token: ${{ secrets.SYS_ORCH_GITHUB }}
           ref: ${{ inputs.orchestratorCommit }}
           path: edge-manageability-framework
           fetch-depth: 0
 
       - name: Prepare ci tools
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           repository: open-edge-platform/orch-ci
-          token: ${{ secrets.SYS_ORCH_GITHUB }}
           path: orch-ci
-
-      - name: Set up git credentials
-        working-directory: edge-manageability-framework
-        shell: bash
-        run: |
-          echo "GOPRIVATE=github.com/open-edge-platform" >> $GITHUB_ENV
-          git config --global url."https://${{ secrets.SYS_ORCH_GITHUB }}:x-oauth-basic@github.com/".insteadOf "https://github.com/"
 
       - name: Install asdf
         # TODO: Pin to a SemVer release when one is made
@@ -132,12 +125,12 @@ jobs:
           ../orch-ci/scripts/version-check.sh
           mage version:checkVersion
       
-      # - name: Create Git Tag
-      #   env:
-      #     GITHUB_TOKEN: ${{ secrets.SYS_ORCH_GITHUB }}
-      #   working-directory: edge-manageability-framework
-      #   run: |
-      #       ../orch-ci/scripts/version-tag.sh
+      - name: Create Git Tag
+        env:
+          GITHUB_TOKEN: ${{ secrets.SYS_ORCH_GITHUB }}
+        working-directory: edge-manageability-framework
+        run: |
+            ../orch-ci/scripts/version-tag.sh
 
       - name: Get version tag
         id: get_version_tag
